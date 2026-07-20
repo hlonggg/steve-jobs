@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>CoinVault</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+<!-- ===================== AD NETWORK SDKs ======================
+     Replace the placeholder zone IDs with your real ones from each
+     network's dashboard. Exact SDK snippets differ slightly by account,
+     so double check against your Monetag / Adexium / Adsgram panel. -->
+<script src="https://libtl.com/sdk.js" data-zone="YOUR_MONETAG_ZONE_ID" data-sdk="show_MONETAG_ZONE_ID"></script>
+<script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+<!-- Adexium: paste the exact <script> tag from your Adexium dashboard here -->
+<!-- <script src="https://adexium.example/sdk.js" data-publisher="YOUR_ADEXIUM_ID"></script> -->
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          bg:      '#0B1220',
+          surface: '#131B2E',
+          surface2:'#1B2540',
+          border:  '#233052',
+          money:   '#16C784',
+          moneyDk: '#0FA968',
+          gold:    '#F0B90B',
+          danger:  '#FF6B6B',
+          txt:     '#E8EDF5',
+          muted:   '#8592AD',
+        },
+        borderRadius: { card: '12px', pill: '10px' },
+        fontFamily: { sans: ['-apple-system','BlinkMacSystemFont','Segoe UI','Roboto','Helvetica','Arial','sans-serif'] },
+      }
+    }
+  }
+</script>
+<style>
+  body { background: #0B1220; }
+  .tabular { font-variant-numeric: tabular-nums; }
+  .tab-active { color: #16C784; }
+  .tab-active .tab-icon { transform: translateY(-2px); }
+  @keyframes popIn { 0% { transform: scale(.85) translateY(6px); opacity:0 } 100% { transform: scale(1) translateY(0); opacity:1 } }
+  .pop-in { animation: popIn .18s ease-out; }
+  @keyframes floatUp { 0% { transform: translateY(0); opacity: 1 } 100% { transform: translateY(-40px); opacity: 0 } }
+  .float-up { animation: floatUp 1.1s ease-out forwards; }
+  ::-webkit-scrollbar { display: none; }
+</style>
+</head>
+<body class="font-sans text-txt min-h-screen pb-24">
+
+<div id="toastLayer" class="fixed top-4 left-0 right-0 z-50 flex flex-col items-center gap-2 pointer-events-none"></div>
+
+<!-- ===================== HEADER / BALANCE HERO ===================== -->
+<header class="px-4 pt-5 pb-4">
+  <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center gap-2">
+      <div id="avatar" class="w-9 h-9 rounded-card bg-surface2 flex items-center justify-center text-sm font-bold">?</div>
+      <div>
+        <div id="greetName" class="text-sm font-semibold leading-tight">Xin chào</div>
+        <div id="vipBadge" class="text-[11px] text-muted leading-tight">Thành viên thường</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-1 bg-surface border border-border rounded-pill px-2.5 py-1.5">
+      <span class="text-gold text-xs">⚡</span>
+      <span id="energyVal" class="text-xs font-semibold tabular">20</span>
+    </div>
+  </div>
+
+  <div class="rounded-card bg-gradient-to-br from-surface2 to-surface border border-border p-5">
+    <div class="text-muted text-xs mb-1">Số dư khả dụng</div>
+    <div class="flex items-end gap-2">
+      <span id="balanceVal" class="text-3xl font-extrabold tabular text-money">0</span>
+      <span class="text-money text-sm mb-1">đ</span>
+    </div>
+    <div class="flex items-center justify-between mt-4 text-xs">
+      <div>
+        <div class="text-muted">Hôm nay</div>
+        <div id="todayEarned" class="font-semibold tabular text-txt">+0đ</div>
+      </div>
+      <div>
+        <div class="text-muted">Tổng đã kiếm</div>
+        <div id="totalEarned" class="font-semibold tabular text-txt">0đ</div>
+      </div>
+      <button onclick="showTab('wallet')" class="bg-money hover:bg-moneyDk text-bg font-bold text-xs px-4 py-2 rounded-pill transition">Rút tiền</button>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== TAB: DASHBOARD ===================== -->
+<main id="tab-dashboard" class="px-4 space-y-3">
+  <div id="adBanner-DASHBOARD" class="empty:hidden"></div>
+  <div class="grid grid-cols-2 gap-3">
+    <div class="rounded-card bg-surface border border-border p-4">
+      <div class="text-muted text-xs mb-1">Cấp độ</div>
+      <div class="flex items-center gap-2">
+        <span id="levelVal" class="text-xl font-bold">1</span>
+        <div class="flex-1 h-1.5 bg-surface2 rounded-full overflow-hidden">
+          <div id="expBar" class="h-full bg-gold" style="width:20%"></div>
+        </div>
+      </div>
+    </div>
+    <div class="rounded-card bg-surface border border-border p-4">
+      <div class="text-muted text-xs mb-1">Chuỗi điểm danh</div>
+      <div class="text-xl font-bold"><span id="streakVal">0</span> <span class="text-sm text-muted">ngày</span></div>
+    </div>
+  </div>
+
+  <button id="checkinBtn" onclick="doCheckin()" class="w-full rounded-card bg-surface border border-border p-4 flex items-center justify-between hover:border-gold transition">
+    <div class="text-left">
+      <div class="font-semibold text-sm">🎁 Điểm danh hôm nay</div>
+      <div class="text-xs text-muted">Nhận thưởng chuỗi ngày, càng dài càng nhiều</div>
+    </div>
+    <span class="text-gold font-bold text-sm">Nhận →</span>
+  </button>
+
+  <div class="rounded-card bg-surface border border-border p-4">
+    <div class="flex items-center justify-between mb-3">
+      <div class="font-semibold text-sm">👥 Giới thiệu bạn bè</div>
+      <span class="text-xs text-muted"><span id="refCount">0</span> người</span>
+    </div>
+    <div class="text-xs text-muted mb-3">Hoa hồng 3 tầng: 10% / 5% / 2% trên mọi khoản bạn bè kiếm được — vĩnh viễn.</div>
+    <button onclick="shareInvite()" class="w-full bg-gold/10 text-gold border border-gold/30 rounded-pill py-2 text-xs font-bold">Chia sẻ link mời</button>
+  </div>
+
+  <div class="rounded-card bg-surface border border-border p-4">
+    <div class="font-semibold text-sm mb-3">Hoạt động gần đây</div>
+    <div id="recentList" class="space-y-2 text-xs text-muted">Chưa có hoạt động</div>
+  </div>
+</main>
+
+<!-- ===================== TAB: TASKS ===================== -->
+<main id="tab-tasks" class="px-4 space-y-3 hidden">
+  <div id="adBanner-TASKS" class="empty:hidden"></div>
+  <div class="text-xs text-muted px-1">Xem hết quảng cáo để nhận tiền ngay vào ví</div>
+  <div id="taskList" class="space-y-3"></div>
+</main>
+
+<!-- ===================== TAB: WALLET ===================== -->
+<main id="tab-wallet" class="px-4 space-y-3 hidden">
+  <div id="adBanner-WALLET" class="empty:hidden"></div>
+  <div class="rounded-card bg-surface border border-border p-4">
+    <div class="text-muted text-xs mb-1">Số dư khả dụng</div>
+    <div id="walletBalance" class="text-2xl font-extrabold tabular text-money">0đ</div>
+    <div class="text-[11px] text-muted mt-1">Rút tối thiểu <span id="minWithdraw">20,000</span>đ · Phí <span id="feePercent">5</span>%</div>
+  </div>
+
+  <div class="rounded-card bg-surface border border-border p-4 space-y-3">
+    <div class="font-semibold text-sm">Yêu cầu rút tiền</div>
+    <input id="wAmount" type="number" placeholder="Số tiền muốn rút" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2.5 text-sm outline-none focus:border-money" />
+    <select id="wMethod" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2.5 text-sm outline-none">
+      <option value="momo">Ví MoMo</option>
+      <option value="bank">Chuyển khoản ngân hàng</option>
+      <option value="usdt">USDT (TRC20)</option>
+    </select>
+    <input id="wDestination" type="text" placeholder="Số điện thoại / STK / địa chỉ ví" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2.5 text-sm outline-none focus:border-money" />
+    <button onclick="submitWithdraw()" class="w-full bg-money text-bg font-bold py-2.5 rounded-pill text-sm">Gửi yêu cầu rút</button>
+  </div>
+
+  <div class="rounded-card bg-surface border border-border p-4">
+    <div class="font-semibold text-sm mb-3">Lịch sử rút tiền</div>
+    <div id="withdrawList" class="space-y-2 text-xs">Chưa có giao dịch</div>
+  </div>
+</main>
+
+<!-- ===================== TAB: VIP ===================== -->
+<main id="tab-vip" class="px-4 space-y-3 hidden">
+  <div id="adBanner-VIP" class="empty:hidden"></div>
+  <div class="rounded-card bg-gradient-to-br from-gold/20 to-surface border border-gold/30 p-4">
+    <div class="font-bold text-gold text-sm mb-1">⭐ Nâng cấp VIP</div>
+    <div class="text-xs text-muted">Tăng % chia sẻ trên mọi nhiệm vụ, mở khóa nhiệm vụ độc quyền</div>
+  </div>
+  <div id="vipList" class="space-y-3"></div>
+</main>
+
+<!-- ===================== BOTTOM NAV ===================== -->
+<nav class="fixed bottom-0 left-0 right-0 bg-surface border-t border-border px-2 py-2 flex justify-around z-40">
+  <button onclick="showTab('dashboard')" data-tab="dashboard" class="tab-btn flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-pill text-muted text-[11px] font-medium">
+    <span class="tab-icon text-lg transition-transform">🏠</span>Tổng quan
+  </button>
+  <button onclick="showTab('tasks')" data-tab="tasks" class="tab-btn flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-pill text-muted text-[11px] font-medium">
+    <span class="tab-icon text-lg transition-transform">🎬</span>Nhiệm vụ
+  </button>
+  <button onclick="showTab('wallet')" data-tab="wallet" class="tab-btn flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-pill text-muted text-[11px] font-medium">
+    <span class="tab-icon text-lg transition-transform">💳</span>Ví
+  </button>
+  <button onclick="showTab('vip')" data-tab="vip" class="tab-btn flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-pill text-muted text-[11px] font-medium">
+    <span class="tab-icon text-lg transition-transform">⭐</span>VIP
+  </button>
+</nav>
+
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.ready(); tg?.expand();
+
+const API = ""; // same-origin
+let STATE = { user: null, config: null, navClicks: 0 };
+
+function fmt(n) { return Math.round(n).toLocaleString("vi-VN"); }
+
+function initDataHeader() {
+  return tg?.initData || "";
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    ...opts,
+    headers: { "Content-Type": "application/json", "X-Init-Data": initDataHeader(), ...(opts.headers||{}) },
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Lỗi không xác định");
+  return data;
+}
+
+function toast(msg, kind = "money") {
+  const layer = document.getElementById("toastLayer");
+  const el = document.createElement("div");
+  const color = kind === "money" ? "bg-money text-bg" : kind === "error" ? "bg-danger text-white" : "bg-surface2 text-txt border border-border";
+  el.className = `pop-in ${color} px-4 py-2 rounded-pill text-sm font-bold shadow-lg`;
+  el.textContent = msg;
+  layer.appendChild(el);
+  setTimeout(() => { el.classList.add("float-up"); setTimeout(()=>el.remove(), 1100); }, 1600);
+}
+
+// ===================== AD SDK WRAPPER (multi-zone rotation) =====================
+// Each task can carry a list of zone/block IDs configured in the admin panel.
+// The API tells us which one to use THIS press (`nextZoneId`, round-robin per
+// user), so consecutive clicks alternate between different ad units instead
+// of always hitting the same one — spreads fill-rate load and avoids the
+// same creative repeating back to back.
+const loadedMonetagZones = new Set();
+
+function loadMonetagZone(zoneId) {
+  return new Promise((resolve, reject) => {
+    if (loadedMonetagZones.has(zoneId)) return resolve();
+    const s = document.createElement("script");
+    s.src = "https://libtl.com/sdk.js";
+    s.dataset.zone = zoneId;
+    s.dataset.sdk = `show_${zoneId}`;
+    s.onload = () => { loadedMonetagZones.add(zoneId); resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+// Each network exposes a different global function once its SDK script loads.
+// This wrapper resolves ONLY when the user has watched the ad to completion
+// (onReward fires) — that's the only moment we call /complete, so admin never
+// pays for un-watched ads.
+async function showRewardedAd(network, zoneId) {
+  try {
+    if (network === "MONETAG") {
+      const zone = zoneId || "YOUR_MONETAG_ZONE_ID"; // fallback default zone
+      await loadMonetagZone(zone);
+      const fn = window[`show_${zone}`];
+      if (fn) return await fn();
+      throw new Error("Monetag SDK chưa sẵn sàng");
+    }
+    if (network === "ADSGRAM" && window.Adsgram) {
+      const blockId = zoneId || "YOUR_ADSGRAM_BLOCK_ID";
+      const AdController = window.Adsgram.init({ blockId });
+      return await AdController.show();
+    }
+    if (network === "ADEXIUM" && window.Adexium?.showRewarded) {
+      // TODO: replace with the exact call from your Adexium dashboard snippet
+      // — pass `zoneId` through if their SDK supports multiple placement IDs.
+      return await new Promise((resolve, reject) =>
+        window.Adexium.showRewarded({ zoneId, onReward: resolve, onError: reject })
+      );
+    }
+    // Fallback for local dev / SDK not loaded yet — simulate a short watch
+    console.warn(`Ad SDK for ${network} (zone ${zoneId}) not available — using dev fallback`);
+    await new Promise(r => setTimeout(r, 1200));
+  } catch (e) {
+    throw e;
+  }
+}
+
+function showInterstitial() {
+  // Fires on every Nth nav click per admin config — pure extra ad revenue,
+  // does not touch user balance at all.
+  if (!STATE.config) return;
+  STATE.navClicks++;
+  const every = STATE.config.interstitialEveryNClicks || 0;
+  if (every > 0 && STATE.navClicks % every === 0) {
+    showRewardedAd("MONETAG").catch(() => {});
+  }
+}
+
+// ===================== RAW AD SLOTS (Adsterra-style script embeds) =====================
+// These are pasted verbatim from the network dashboard (admin panel → Ad Slots).
+// Two kinds:
+//   GLOBAL_SCRIPT — self-triggering (popunder, social bar). Injected once ever.
+//   BANNER        — needs a visible container div, re-injected per tab visit.
+// A <script> tag set via innerHTML never executes (browser security rule), so
+// this manually rebuilds real <script> elements to make the network's code run.
+const injectedGlobalSlotIds = new Set();
+
+function injectRawAdHtml(rawHtml, container) {
+  const temp = document.createElement("div");
+  temp.innerHTML = rawHtml;
+  Array.from(temp.childNodes).forEach(node => {
+    if (node.nodeName === "SCRIPT") {
+      const s = document.createElement("script");
+      for (const attr of node.attributes) s.setAttribute(attr.name, attr.value);
+      s.textContent = node.textContent;
+      container.appendChild(s);
+    } else {
+      container.appendChild(node.cloneNode(true));
+    }
+  });
+}
+
+async function loadAdSlotsForPage(page) {
+  try {
+    const { slots } = await api(`/api/adslots?page=${page}`);
+    slots.forEach(slot => {
+      if (slot.placement === "GLOBAL_SCRIPT") {
+        if (injectedGlobalSlotIds.has(slot.id)) return; // inject once per session
+        injectedGlobalSlotIds.add(slot.id);
+        injectRawAdHtml(slot.rawEmbedCode, document.body);
+      } else if (slot.placement === "BANNER") {
+        const container = document.getElementById(`adBanner-${slot.page}`);
+        if (container) { container.innerHTML = ""; injectRawAdHtml(slot.rawEmbedCode, container); }
+      }
+    });
+  } catch (e) { console.warn("Ad slot load failed", e); }
+}
+
+// ===================== TABS =====================
+function showTab(name) {
+  showInterstitial();
+  ["dashboard","tasks","wallet","vip"].forEach(t => {
+    document.getElementById(`tab-${t}`).classList.toggle("hidden", t !== name);
+  });
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("tab-active", b.dataset.tab === name));
+  loadAdSlotsForPage(name.toUpperCase());
+  if (name === "tasks") loadTasks();
+  if (name === "wallet") loadWallet();
+  if (name === "vip") loadVip();
+}
+
+// ===================== DASHBOARD =====================
+async function loadDashboard() {
+  const d = await api("/api/dashboard");
+  injectSiteWideAds(d.siteWideAdScripts);
+  document.getElementById("balanceVal").textContent = fmt(d.balance);
+  document.getElementById("todayEarned").textContent = "+" + fmt(d.todayEarned) + "đ";
+  document.getElementById("totalEarned").textContent = fmt(d.totalEarned) + "đ";
+  document.getElementById("levelVal").textContent = d.level;
+  document.getElementById("expBar").style.width = Math.min(100, (d.exp % 100)) + "%";
+  document.getElementById("streakVal").textContent = d.streak;
+  document.getElementById("energyVal").textContent = d.energy;
+  document.getElementById("refCount").textContent = d.referralCount;
+  document.getElementById("vipBadge").textContent = d.vipTier > 0 ? `VIP ${d.vipTier}` : "Thành viên thường";
+  document.getElementById("walletBalance").textContent = fmt(d.balance) + "đ";
+
+  const list = document.getElementById("recentList");
+  if (d.recentCompletions?.length) {
+    list.innerHTML = d.recentCompletions.map(c => `
+      <div class="flex justify-between">
+        <span>${c.task.title}</span>
+        <span class="text-money font-semibold">+${fmt(c.userReward)}đ</span>
+      </div>`).join("");
+  }
+}
+
+async function doCheckin() {
+  try {
+    const r = await api("/api/tasks/checkin/claim", { method: "POST" });
+    toast(`+${fmt(r.reward)}đ · Chuỗi ${r.streak} ngày`);
+    loadDashboard();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+function shareInvite() {
+  tg?.openTelegramLink?.(`https://t.me/share/url?url=${encodeURIComponent("Tham gia CoinVault kiếm tiền cùng mình!")}`);
+}
+
+// ===================== TASKS =====================
+async function loadTasks() {
+  const { tasks } = await api("/api/tasks");
+  const el = document.getElementById("taskList");
+  el.innerHTML = tasks.map(t => `
+    <div class="rounded-card bg-surface border border-border p-4 flex items-center justify-between">
+      <div>
+        <div class="font-semibold text-sm">${t.title}</div>
+        <div class="text-xs text-muted mt-0.5">${t.description || ""}</div>
+      </div>
+      <button id="taskbtn-${t.id}" onclick="${t.adTrigger === 'DIRECT_LINK' ? `handleDirectLink('${t.id}')` : `completeTask('${t.id}')`}"
+        class="bg-money text-bg font-bold text-xs px-4 py-2 rounded-pill whitespace-nowrap">+${fmt(t.previewReward)}đ</button>
+    </div>
+  `).join("");
+}
+
+// SDK-callback tasks (Monetag/Adsgram/Adexium) — ad SDK itself confirms the watch.
+async function completeTask(taskId) {
+  try {
+    const taskBtn = document.getElementById(`taskbtn-${taskId}`);
+    taskBtn.disabled = true; taskBtn.textContent = "Đang xem...";
+    const { tasks } = await api("/api/tasks");
+    const task = tasks.find(t => t.id === taskId);
+    await showRewardedAd(task.network, task.nextZoneId);
+    const r = await api(`/api/tasks/${taskId}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ zoneIdUsed: task.nextZoneId }), // logging only, not trusted for payout
+    });
+    toast(`+${fmt(r.userReward)}đ`);
+    loadDashboard(); loadTasks();
+  } catch (e) {
+    toast(e.message || "Quảng cáo chưa hoàn tất", "error");
+    loadTasks();
+  }
+}
+
+// DIRECT_LINK tasks (Adsterra Direct Link / no-callback links) — no SDK confirmation
+// exists, so: open the link, then require a minimum dwell time (verified server-side
+// against /direct-link/start) before the reward can be claimed.
+async function handleDirectLink(taskId) {
+  const taskBtn = document.getElementById(`taskbtn-${taskId}`);
+  try {
+    taskBtn.disabled = true;
+    const { url, dwellSeconds } = await api(`/api/tasks/${taskId}/direct-link/start`, { method: "POST" });
+    tg?.openLink ? tg.openLink(url) : window.open(url, "_blank");
+
+    let remaining = dwellSeconds;
+    taskBtn.textContent = `Chờ ${remaining}s`;
+    const interval = setInterval(() => {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(interval);
+        taskBtn.textContent = "Nhận thưởng";
+        taskBtn.disabled = false;
+        taskBtn.onclick = () => claimDirectLink(taskId);
+      } else {
+        taskBtn.textContent = `Chờ ${remaining}s`;
+      }
+    }, 1000);
+  } catch (e) {
+    toast(e.message, "error");
+    taskBtn.disabled = false;
+    loadTasks();
+  }
+}
+
+async function claimDirectLink(taskId) {
+  try {
+    const r = await api(`/api/tasks/${taskId}/complete`, { method: "POST" });
+    toast(`+${fmt(r.userReward)}đ`);
+    loadDashboard(); loadTasks();
+  } catch (e) {
+    toast(e.message, "error");
+    loadTasks();
+  }
+}
+
+// ===================== SITE-WIDE PASSIVE ADS (Adsterra Popunder / Social Bar etc) =====================
+// Raw <script> snippets pasted in the admin panel, injected once on app load.
+// Pure background admin revenue — no reward, no user interaction required.
+let siteWideAdsInjected = false;
+function injectSiteWideAds(scripts) {
+  if (siteWideAdsInjected || !Array.isArray(scripts) || scripts.length === 0) return;
+  siteWideAdsInjected = true;
+  scripts.forEach(entry => {
+    try {
+      const container = document.createElement("div");
+      container.innerHTML = entry.html;
+      // re-create <script> tags so the browser actually executes them
+      container.querySelectorAll("script").forEach(oldScript => {
+        const s = document.createElement("script");
+        [...oldScript.attributes].forEach(a => s.setAttribute(a.name, a.value));
+        s.text = oldScript.text;
+        document.body.appendChild(s);
+      });
+    } catch (e) { console.warn("Site-wide ad inject failed:", entry.label, e); }
+  });
+}
+
+// ===================== WALLET =====================
+async function loadWallet() {
+  const w = await api("/api/wallet");
+  document.getElementById("minWithdraw").textContent = fmt(w.minWithdraw);
+  document.getElementById("feePercent").textContent = w.feePercent;
+  const list = document.getElementById("withdrawList");
+  list.innerHTML = w.withdrawals.length ? w.withdrawals.map(x => `
+    <div class="flex justify-between border-b border-border/50 pb-2">
+      <div>
+        <div class="font-medium">${fmt(x.amountRequested)}đ</div>
+        <div class="text-muted text-[10px]">${new Date(x.createdAt).toLocaleDateString("vi-VN")} · ${x.method}</div>
+      </div>
+      <span class="${x.status==='PAID'?'text-money':x.status==='REJECTED'?'text-danger':'text-gold'} text-[11px] font-bold self-center">${
+        {PENDING:'Chờ duyệt',APPROVED:'Đã duyệt',REJECTED:'Từ chối',PAID:'Đã trả'}[x.status]
+      }</span>
+    </div>`).join("") : "Chưa có giao dịch";
+}
+
+async function submitWithdraw() {
+  const amount = Number(document.getElementById("wAmount").value);
+  const method = document.getElementById("wMethod").value;
+  const destination = document.getElementById("wDestination").value.trim();
+  try {
+    await api("/api/wallet/withdraw", { method: "POST", body: JSON.stringify({ amount, method, destination }) });
+    toast("Đã gửi yêu cầu rút tiền");
+    document.getElementById("wAmount").value = ""; document.getElementById("wDestination").value = "";
+    loadDashboard(); loadWallet();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+// ===================== VIP =====================
+async function loadVip() {
+  const prices = STATE.config?.vipPrices || {1:20000,2:50000,3:100000,4:200000};
+  const boosts = STATE.config?.vipRevenueBoost || {1:5,2:10,3:15,4:20};
+  const el = document.getElementById("vipList");
+  el.innerHTML = Object.entries(prices).map(([tier, price]) => `
+    <div class="rounded-card bg-surface border border-border p-4 flex items-center justify-between">
+      <div>
+        <div class="font-semibold text-sm">VIP ${tier}</div>
+        <div class="text-xs text-muted">+${boosts[tier]||0}% chia sẻ mỗi nhiệm vụ</div>
+      </div>
+      <button onclick="buyVip(${tier})" class="bg-gold text-bg font-bold text-xs px-4 py-2 rounded-pill whitespace-nowrap">${fmt(price)}đ</button>
+    </div>
+  `).join("");
+}
+
+async function buyVip(tier) {
+  try {
+    await api("/api/wallet/vip/purchase", { method: "POST", body: JSON.stringify({ tier }) });
+    toast(`Đã nâng cấp VIP ${tier}`);
+    loadDashboard();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+// ===================== INIT =====================
+async function init() {
+  try {
+    const params = new URLSearchParams(location.search);
+    const refCode = params.get("ref");
+    const { user } = await api("/api/auth/session", { method: "POST", body: JSON.stringify({ refCode }) });
+    STATE.user = user;
+    document.getElementById("greetName").textContent = `Chào, ${user.firstName || user.username || "bạn"}`;
+    document.getElementById("avatar").textContent = (user.firstName || "?")[0].toUpperCase();
+    showTab("dashboard");
+    await loadDashboard();
+  } catch (e) {
+    toast(e.message || "Không thể khởi tạo phiên", "error");
+  }
+}
+init();
+</script>
+</body>
+</html>
