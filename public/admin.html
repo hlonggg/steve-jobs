@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CoinVault Admin</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: {
+    colors: { bg:'#0B1220', surface:'#131B2E', surface2:'#1B2540', border:'#233052',
+      money:'#16C784', gold:'#F0B90B', danger:'#FF6B6B', txt:'#E8EDF5', muted:'#8592AD' },
+    borderRadius: { card: '12px', pill: '10px' },
+  }}}
+</script>
+<style>::-webkit-scrollbar{display:none}</style>
+</head>
+<body class="bg-bg text-txt font-sans min-h-screen pb-10">
+
+<!-- ===================== PASSWORD GATE =====================
+     ⚠️ Đây chỉ là lớp chặn phụ ở phía giao diện, KHÔNG phải bảo mật thật sự
+     — bất kỳ ai bấm "xem mã nguồn trang" đều đọc được mật khẩu này.
+     Lớp bảo mật thật sự vẫn là kiểm tra Telegram ID (ADMIN_TELEGRAM_IDS)
+     ở phía server trong src/routes/admin.js. Đổi mật khẩu ở dòng
+     ADMIN_PANEL_PASSWORD bên dưới. -->
+<div id="lockScreen" class="fixed inset-0 z-[100] bg-bg flex items-center justify-center px-6">
+  <div class="w-full max-w-xs rounded-card bg-surface border border-border p-6 text-center">
+    <div class="text-2xl mb-2">🔒</div>
+    <div class="font-bold text-sm mb-1">CoinVault Admin</div>
+    <div class="text-xs text-muted mb-4">Nhập mật khẩu để vào trang quản trị</div>
+    <input id="lockPassword" type="password" placeholder="Mật khẩu" autocomplete="off"
+      class="w-full bg-surface2 border border-border rounded-pill px-4 py-2.5 text-sm text-center outline-none focus:border-money mb-2" />
+    <div id="lockError" class="text-danger text-xs mb-2 hidden">Sai mật khẩu</div>
+    <button onclick="tryUnlock()" class="w-full bg-money text-bg font-bold py-2.5 rounded-pill text-sm">Đăng nhập</button>
+  </div>
+</div>
+
+<div id="adminApp" class="hidden">
+<header class="px-4 py-4 border-b border-border sticky top-0 bg-bg z-10">
+  <h1 class="font-bold text-lg">🛠 CoinVault Admin</h1>
+</header>
+
+<nav class="flex gap-2 px-4 py-3 overflow-x-auto">
+  <button onclick="showTab('overview')" class="tabbtn" data-tab="overview">Tổng quan</button>
+  <button onclick="showTab('tasks')" class="tabbtn" data-tab="tasks">Nhiệm vụ / CPM</button>
+  <button onclick="showTab('adslots')" class="tabbtn" data-tab="adslots">Ad Slots</button>
+  <button onclick="showTab('withdrawals')" class="tabbtn" data-tab="withdrawals">Rút tiền</button>
+  <button onclick="showTab('config')" class="tabbtn" data-tab="config">Cấu hình</button>
+</nav>
+
+<main class="px-4 space-y-3">
+
+<!-- OVERVIEW -->
+<section id="tab-overview">
+  <div class="grid grid-cols-2 gap-3 mb-3">
+    <div class="rounded-card bg-surface border border-border p-4">
+      <div class="text-muted text-xs">Lợi nhuận hôm nay</div>
+      <div id="ov_todayProfit" class="text-xl font-extrabold text-money">0đ</div>
+    </div>
+    <div class="rounded-card bg-surface border border-border p-4">
+      <div class="text-muted text-xs">Lợi nhuận tổng</div>
+      <div id="ov_totalProfit" class="text-xl font-extrabold text-gold">0đ</div>
+    </div>
+    <div class="rounded-card bg-surface border border-border p-4">
+      <div class="text-muted text-xs">Đã trả người dùng</div>
+      <div id="ov_userPaid" class="text-lg font-bold">0đ</div>
+    </div>
+    <div class="rounded-card bg-surface border border-border p-4">
+      <div class="text-muted text-xs">Doanh thu network</div>
+      <div id="ov_sourceRevenue" class="text-lg font-bold">0đ</div>
+    </div>
+    <div class="rounded-card bg-surface border border-border p-4">
+      <div class="text-muted text-xs">Người dùng</div>
+      <div id="ov_users" class="text-lg font-bold">0</div>
+    </div>
+    <div class="rounded-card bg-surface border border-border p-4">
+      <div class="text-muted text-xs">Rút tiền chờ duyệt</div>
+      <div id="ov_pending" class="text-lg font-bold text-danger">0</div>
+    </div>
+  </div>
+  <div class="rounded-card bg-surface2 border border-gold/30 p-4 text-xs text-muted">
+    💡 Margin admin = Doanh thu network − Đã trả user. Luôn dương vì hệ thống tự động chặn user vượt quá % chia sẻ tối đa (xem src/lib/economics.js).
+  </div>
+</section>
+
+<!-- TASKS / CPM -->
+<section id="tab-tasks" class="hidden space-y-3">
+  <button onclick="openTaskForm()" class="w-full bg-money text-bg font-bold py-2.5 rounded-pill text-sm">+ Thêm nhiệm vụ</button>
+  <div id="taskAdminList" class="space-y-2"></div>
+</section>
+
+<!-- AD SLOTS (raw script embeds — Adsterra, PropellerAds, etc) -->
+<section id="tab-adslots" class="hidden space-y-3">
+  <div class="rounded-card bg-surface2 border border-gold/30 p-3 text-xs text-muted">
+    💡 Dán y nguyên đoạn &lt;script&gt; network đưa cho bạn (Adsterra Popunder,
+    Social Bar, Banner...). Loại này KHÔNG xác nhận được user đã xem xong nên
+    không chia tiền cho user — 100% là lợi nhuận admin, giống cơ chế interstitial.
+  </div>
+  <button onclick="openSlotForm()" class="w-full bg-money text-bg font-bold py-2.5 rounded-pill text-sm">+ Thêm Ad Slot</button>
+  <div id="slotAdminList" class="space-y-2"></div>
+</section>
+
+<!-- WITHDRAWALS -->
+<section id="tab-withdrawals" class="hidden space-y-2">
+  <div id="withdrawAdminList"></div>
+</section>
+
+<!-- CONFIG -->
+<section id="tab-config" class="hidden space-y-3">
+  <div class="rounded-card bg-surface border border-border p-4 space-y-3">
+    <div class="font-semibold text-sm mb-1">Chia sẻ doanh thu & phí</div>
+    <label class="text-xs text-muted">% chia sẻ mặc định cho user</label>
+    <input id="cfg_share" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">Rút tối thiểu (đ)</label>
+    <input id="cfg_minWithdraw" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">Phí rút tiền (%)</label>
+    <input id="cfg_withdrawFee" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">Interstitial ad mỗi N lần bấm menu</label>
+    <input id="cfg_interstitial" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <button onclick="saveConfig()" class="w-full bg-gold text-bg font-bold py-2.5 rounded-pill text-sm">Lưu cấu hình</button>
+  </div>
+</section>
+
+</main>
+
+</div><!-- /#adminApp -->
+
+<!-- Ad Slot form modal -->
+<div id="slotModal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-end">
+  <div class="bg-surface w-full rounded-t-2xl p-4 space-y-2 max-h-[85vh] overflow-y-auto">
+    <div class="font-bold text-sm mb-2">Ad Slot</div>
+    <input id="s_id" type="hidden">
+    <input id="s_name" placeholder="Tên gợi nhớ, VD: Adsterra Social Bar" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <input id="s_network" placeholder="Network, VD: adsterra" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <select id="s_placement" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+      <option value="GLOBAL_SCRIPT">Tự chạy (Popunder / Social Bar) — không cần khung hiển thị</option>
+      <option value="BANNER">Banner — hiển thị trong 1 khung cụ thể</option>
+    </select>
+    <select id="s_page" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+      <option value="GLOBAL">Toàn app (mọi trang)</option>
+      <option value="DASHBOARD">Chỉ trang Tổng quan</option>
+      <option value="TASKS">Chỉ trang Nhiệm vụ</option>
+      <option value="WALLET">Chỉ trang Ví</option>
+      <option value="VIP">Chỉ trang VIP</option>
+    </select>
+    <label class="text-xs text-muted">Dán y nguyên đoạn script network đưa cho bạn</label>
+    <textarea id="s_code" rows="6" placeholder="<script>...</script>" class="w-full bg-surface2 border border-border rounded-card px-4 py-2 text-xs font-mono"></textarea>
+    <div class="flex gap-2 pt-2">
+      <button onclick="closeSlotForm()" class="flex-1 bg-surface2 py-2.5 rounded-pill text-sm">Hủy</button>
+      <button onclick="saveSlot()" class="flex-1 bg-money text-bg font-bold py-2.5 rounded-pill text-sm">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Task form modal -->
+<div id="taskModal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-end">
+  <div class="bg-surface w-full rounded-t-2xl p-4 space-y-2 max-h-[85vh] overflow-y-auto">
+    <div class="font-bold text-sm mb-2">Nhiệm vụ</div>
+    <input id="t_id" type="hidden">
+    <input id="t_title" placeholder="Tên nhiệm vụ" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <input id="t_desc" placeholder="Mô tả" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <select id="t_type" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+      <option value="REWARDED_VIDEO">Rewarded Video</option>
+      <option value="INTERSTITIAL">Interstitial</option>
+      <option value="APP_OPEN">App Open</option>
+      <option value="SOCIAL">Social</option>
+      <option value="CHECKIN">Checkin</option>
+      <option value="OFFERWALL">Offerwall</option>
+    </select>
+    <select id="t_network" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+      <option value="MONETAG">Monetag</option>
+      <option value="ADEXIUM">Adexium</option>
+      <option value="ADSGRAM">Adsgram</option>
+      <option value="NONE">Không (nhiệm vụ thường)</option>
+    </select>
+    <label class="text-xs text-muted">Network trả admin bao nhiêu / lượt (đ)</label>
+    <input id="t_revenue" type="number" placeholder="VD: 200" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">% chia cho user (mặc định lấy config chung nếu bỏ trống)</label>
+    <input id="t_share" type="number" placeholder="50" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">Danh sách Zone/Block ID quảng cáo — cách nhau bằng dấu phẩy, sẽ luân phiên mỗi lần bấm</label>
+    <input id="t_zoneIds" placeholder="VD: 1234567, 1234568, 1234569" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+
+    <div class="text-[11px] text-gold font-semibold pt-2">Giới hạn theo từng người dùng</div>
+    <label class="text-xs text-muted">Cooldown giữa 2 lần làm (giây)</label>
+    <input id="t_cooldown" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">Giới hạn/ngày mỗi người (0 = không giới hạn)</label>
+    <input id="t_daily" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">Giới hạn trọn đời mỗi người (0 = không giới hạn)</label>
+    <input id="t_totalPerUser" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+
+    <div class="text-[11px] text-gold font-semibold pt-2">Giới hạn toàn hệ thống (kiểm soát ngân sách quảng cáo)</div>
+    <label class="text-xs text-muted">Tổng lượt/ngày toàn bộ user (0 = không giới hạn)</label>
+    <input id="t_globalDaily" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">Tổng lượt trọn đời toàn bộ user (0 = không giới hạn)</label>
+    <input id="t_globalTotal" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+
+    <div class="flex gap-2 pt-2">
+      <button onclick="closeTaskForm()" class="flex-1 bg-surface2 py-2.5 rounded-pill text-sm">Hủy</button>
+      <button onclick="saveTask()" class="flex-1 bg-money text-bg font-bold py-2.5 rounded-pill text-sm">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .tabbtn { padding:8px 14px; border-radius:10px; font-size:12px; font-weight:600; color:#8592AD; background:#131B2E; border:1px solid #233052; white-space:nowrap; }
+  .tabbtn.active { color:#16C784; border-color:#16C784; }
+</style>
+
+<script>
+// ⚠️ Đổi mật khẩu ở đây. Đây chỉ là lớp chặn UI, không thay thế cho việc
+// kiểm tra ADMIN_TELEGRAM_IDS ở backend (src/routes/admin.js).
+const ADMIN_PANEL_PASSWORD = "longdzvcl12@";
+
+function tryUnlock() {
+  const input = document.getElementById("lockPassword").value;
+  const err = document.getElementById("lockError");
+  if (input === ADMIN_PANEL_PASSWORD) {
+    sessionStorage.setItem("coinvault_admin_unlocked", "1");
+    document.getElementById("lockScreen").classList.add("hidden");
+    document.getElementById("adminApp").classList.remove("hidden");
+    err.classList.add("hidden");
+    showTab("overview");
+  } else {
+    err.classList.remove("hidden");
+    document.getElementById("lockPassword").value = "";
+    document.getElementById("lockPassword").focus();
+  }
+}
+document.getElementById("lockPassword")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") tryUnlock();
+});
+
+// Stay unlocked for the rest of this browser session (closes when the Mini App tab closes)
+if (sessionStorage.getItem("coinvault_admin_unlocked") === "1") {
+  document.getElementById("lockScreen").classList.add("hidden");
+  document.getElementById("adminApp").classList.remove("hidden");
+}
+
+const tg = window.Telegram?.WebApp; tg?.ready(); tg?.expand();
+function initDataHeader(){ return tg?.initData || ""; }
+async function api(path, opts={}) {
+  const res = await fetch(path, { ...opts, headers: { "Content-Type":"application/json", "X-Init-Data": initDataHeader(), ...(opts.headers||{}) } });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Lỗi");
+  return data;
+}
+function fmt(n){ return Math.round(n||0).toLocaleString("vi-VN"); }
+
+function showTab(name){
+  ["overview","tasks","adslots","withdrawals","config"].forEach(t => document.getElementById(`tab-${t}`).classList.toggle("hidden", t!==name));
+  document.querySelectorAll(".tabbtn").forEach(b => b.classList.toggle("active", b.dataset.tab===name));
+  if (name==="overview") loadOverview();
+  if (name==="tasks") loadTasks();
+  if (name==="adslots") loadSlots();
+  if (name==="withdrawals") loadWithdrawals();
+  if (name==="config") loadConfig();
+}
+
+async function loadOverview(){
+  const d = await api("/api/admin/overview");
+  ov_todayProfit.textContent = fmt(d.todayProfit)+"đ";
+  ov_totalProfit.textContent = fmt(d.totalAdminProfit)+"đ";
+  ov_userPaid.textContent = fmt(d.totalUserPaid)+"đ";
+  ov_sourceRevenue.textContent = fmt(d.totalSourceRevenue)+"đ";
+  ov_users.textContent = d.userCount;
+  ov_pending.textContent = d.pendingWithdrawals;
+}
+
+async function loadTasks(){
+  const { tasks } = await api("/api/admin/tasks");
+  taskAdminList.innerHTML = tasks.map(t => `
+    <div class="rounded-card bg-surface border border-border p-3 flex items-center justify-between">
+      <div>
+        <div class="font-semibold text-sm">${t.title} <span class="text-[10px] text-muted">${t.network}</span></div>
+        <div class="text-xs text-muted">Network trả: ${fmt(t.adminRevenuePerAction)}đ · User nhận ~${fmt(t.adminRevenuePerAction*(t.revenueSharePercent/100))}đ (${t.revenueSharePercent}%)</div>
+        <div class="text-[10px] text-muted mt-0.5">
+          ${(t.zoneIds||[]).length ? `🔁 ${t.zoneIds.length} zone luân phiên` : "1 zone mặc định"}
+          ${t.dailyLimit ? ` · ${t.dailyLimit}/ngày/người` : ""}
+          ${t.totalLimitPerUser ? ` · tối đa ${t.totalLimitPerUser}/người` : ""}
+          ${t.globalDailyLimit ? ` · tổng ${t.globalDailyLimit}/ngày` : ""}
+          ${t.globalTotalLimit ? ` · tổng tối đa ${t.globalTotalLimit}` : ""}
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button onclick='editTask(${JSON.stringify(t)})' class="text-xs bg-surface2 px-3 py-1.5 rounded-pill">Sửa</button>
+        <button onclick="toggleTask('${t.id}', ${!t.active})" class="text-xs px-3 py-1.5 rounded-pill ${t.active?'bg-money text-bg':'bg-danger/20 text-danger'}">${t.active?'Bật':'Tắt'}</button>
+      </div>
+    </div>`).join("");
+}
+
+const taskFormFields = ["t_id","t_title","t_desc","t_revenue","t_share","t_cooldown","t_daily","t_zoneIds","t_totalPerUser","t_globalDaily","t_globalTotal"];
+function openTaskForm(){ taskModal.classList.remove("hidden"); }
+function closeTaskForm(){ taskModal.classList.add("hidden"); taskFormFields.forEach(id=>document.getElementById(id).value=""); }
+function editTask(t){
+  openTaskForm();
+  t_id.value=t.id; t_title.value=t.title; t_desc.value=t.description||"";
+  t_type.value=t.type; t_network.value=t.network; t_revenue.value=t.adminRevenuePerAction;
+  t_share.value=t.revenueSharePercent; t_cooldown.value=t.cooldownSeconds; t_daily.value=t.dailyLimit;
+  t_zoneIds.value = (t.zoneIds||[]).join(", ");
+  t_totalPerUser.value = t.totalLimitPerUser || 0;
+  t_globalDaily.value = t.globalDailyLimit || 0;
+  t_globalTotal.value = t.globalTotalLimit || 0;
+}
+async function saveTask(){
+  const zoneIds = t_zoneIds.value.split(",").map(s=>s.trim()).filter(Boolean);
+  const payload = {
+    title: t_title.value, description: t_desc.value, type: t_type.value, network: t_network.value,
+    adminRevenuePerAction: Number(t_revenue.value||0), revenueSharePercent: Number(t_share.value||50),
+    cooldownSeconds: Number(t_cooldown.value||0), dailyLimit: Number(t_daily.value||0),
+    zoneIds, totalLimitPerUser: Number(t_totalPerUser.value||0),
+    globalDailyLimit: Number(t_globalDaily.value||0), globalTotalLimit: Number(t_globalTotal.value||0),
+  };
+  try {
+    if (t_id.value) await api(`/api/admin/tasks/${t_id.value}`, { method:"PATCH", body: JSON.stringify(payload) });
+    else await api("/api/admin/tasks", { method:"POST", body: JSON.stringify(payload) });
+    closeTaskForm(); loadTasks();
+  } catch(e){ alert(e.message); }
+}
+async function toggleTask(id, active){ await api(`/api/admin/tasks/${id}`, { method:"PATCH", body: JSON.stringify({active}) }); loadTasks(); }
+
+async function loadSlots(){
+  const { slots } = await api("/api/admin/adslots");
+  slotAdminList.innerHTML = slots.length ? slots.map(s => `
+    <div class="rounded-card bg-surface border border-border p-3 flex items-center justify-between">
+      <div>
+        <div class="font-semibold text-sm">${s.name} <span class="text-[10px] text-muted">${s.network}</span></div>
+        <div class="text-xs text-muted">${s.placement==='GLOBAL_SCRIPT'?'Tự chạy':'Banner'} · ${s.page}</div>
+      </div>
+      <div class="flex gap-2">
+        <button onclick='editSlot(${JSON.stringify(s)})' class="text-xs bg-surface2 px-3 py-1.5 rounded-pill">Sửa</button>
+        <button onclick="toggleSlot('${s.id}', ${!s.active})" class="text-xs px-3 py-1.5 rounded-pill ${s.active?'bg-money text-bg':'bg-danger/20 text-danger'}">${s.active?'Bật':'Tắt'}</button>
+      </div>
+    </div>`).join("") : '<div class="text-xs text-muted">Chưa có Ad Slot nào</div>';
+}
+function openSlotForm(){ slotModal.classList.remove("hidden"); }
+function closeSlotForm(){ slotModal.classList.add("hidden"); ["s_id","s_name","s_network","s_code"].forEach(id=>document.getElementById(id).value=""); }
+function editSlot(s){
+  openSlotForm();
+  s_id.value=s.id; s_name.value=s.name; s_network.value=s.network;
+  s_placement.value=s.placement; s_page.value=s.page; s_code.value=s.rawEmbedCode;
+}
+async function saveSlot(){
+  const payload = {
+    name: s_name.value, network: s_network.value, placement: s_placement.value,
+    page: s_page.value, rawEmbedCode: s_code.value,
+  };
+  try {
+    if (s_id.value) await api(`/api/admin/adslots/${s_id.value}`, { method:"PATCH", body: JSON.stringify(payload) });
+    else await api("/api/admin/adslots", { method:"POST", body: JSON.stringify(payload) });
+    closeSlotForm(); loadSlots();
+  } catch(e){ alert(e.message); }
+}
+async function toggleSlot(id, active){ await api(`/api/admin/adslots/${id}`, { method:"PATCH", body: JSON.stringify({active}) }); loadSlots(); }
+
+async function loadWithdrawals(){
+  const { withdrawals } = await api("/api/admin/withdrawals?status=PENDING");
+  withdrawAdminList.innerHTML = withdrawals.length ? withdrawals.map(w => `
+    <div class="rounded-card bg-surface border border-border p-3 mb-2">
+      <div class="flex justify-between text-sm mb-1">
+        <span class="font-semibold">${fmt(w.amountRequested)}đ → ${fmt(w.amountPaid)}đ (phí ${fmt(w.feeAmount)}đ)</span>
+      </div>
+      <div class="text-xs text-muted mb-2">@${w.user?.username||w.user?.telegramId} · ${w.method} · ${w.destination}</div>
+      <div class="flex gap-2">
+        <button onclick="processWithdraw('${w.id}','PAID')" class="flex-1 bg-money text-bg text-xs font-bold py-2 rounded-pill">Đã trả</button>
+        <button onclick="processWithdraw('${w.id}','REJECTED')" class="flex-1 bg-danger/20 text-danger text-xs font-bold py-2 rounded-pill">Từ chối</button>
+      </div>
+    </div>`).join("") : '<div class="text-xs text-muted">Không có yêu cầu chờ duyệt</div>';
+}
+async function processWithdraw(id, status){ await api(`/api/admin/withdrawals/${id}`, { method:"PATCH", body: JSON.stringify({status}) }); loadWithdrawals(); loadOverview(); }
+
+async function loadConfig(){
+  const { config } = await api("/api/admin/config");
+  cfg_share.value = config.defaultRevenueSharePercent;
+  cfg_minWithdraw.value = config.minWithdraw;
+  cfg_withdrawFee.value = config.withdrawFeePercent;
+  cfg_interstitial.value = config.interstitialEveryNClicks;
+}
+async function saveConfig(){
+  try {
+    await api("/api/admin/config", { method:"PATCH", body: JSON.stringify({
+      defaultRevenueSharePercent: Number(cfg_share.value),
+      minWithdraw: Number(cfg_minWithdraw.value),
+      withdrawFeePercent: Number(cfg_withdrawFee.value),
+      interstitialEveryNClicks: Number(cfg_interstitial.value),
+    })});
+    alert("Đã lưu");
+  } catch(e){ alert(e.message); }
+}
+
+if (sessionStorage.getItem("coinvault_admin_unlocked") === "1") showTab("overview");
+</script>
+</body>
+</html>
