@@ -1,0 +1,250 @@
+// ============================================================================
+// COINVAULT — Telegram Mini App: Task/Ad-reward platform
+// Economics: Admin sets the REAL payout the ad network gives per view/action
+// (adminRevenuePerAction). The user is paid a % of that (revenueSharePercent,
+// default 50%). Admin keeps the rest automatically on every single completion.
+// Extra layers (interstitial-only revenue, VIP fees, withdrawal fee) are pure
+// admin margin on top — see src/lib/economics.js for the full formula.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql" // swap to "sqlite" for local Termux dev, url = "file:./dev.db"
+  url      = env("DATABASE_URL")
+}
+
+enum TaskType {
+  REWARDED_VIDEO   // full rewarded video ad — highest CPM, main income task
+  INTERSTITIAL     // full screen ad shown between actions
+  APP_OPEN         // ad shown on app open
+  SOCIAL           // join channel / follow — fixed admin-funded reward
+  CHECKIN          // daily check-in streak
+  OFFERWALL        // 3rd party offerwall task (CPA)
+}
+
+enum AdNetwork {
+  MONETAG
+  ADEXIUM
+  ADSGRAM
+  ADSTERRA
+  CUSTOM // any other network that gives you a raw <script> or link, format varies per site
+  NONE   // for non-ad tasks like check-in/social
+}
+
+// How the client should trigger + verify this task's ad. Networks differ:
+// some (Monetag/Adsgram/Adexium) give a JS callback that fires when the ad
+// was actually watched. Others (Adsterra Direct Link, most popunder/CPA
+// links) give you only a URL — there's no "watched" signal, so completion
+// is verified with a client-side dwell timer instead (weaker, but it's the
+// only signal these networks offer).
+enum AdTrigger {
+  REWARDED_CALLBACK // SDK call resolves only when ad was fully watched (Monetag/Adsgram/Adexium)
+  DIRECT_LINK       // open a URL, user comes back, dwell-timer verifies before reward (Adsterra Direct Link etc.)
+}
+
+enum WithdrawStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+model User {
+  id             String   @id @default(cuid())
+  telegramId     String   @unique
+  username       String?
+  firstName      String?
+  photoUrl       String?
+
+  balance        Float    @default(0)     // withdrawable, in VND (or your unit)
+  totalEarned    Float    @default(0)
+  totalWithdrawn Float    @default(0)
+
+  level          Int      @default(1)
+  exp            Int      @default(0)
+  vipTier        Int      @default(0)     // 0=free,1..4 = paid tiers, boosts revenueShare
+  energy         Int      @default(20)    // gates spin/box features, refills via watching ads
+
+  streak         Int      @default(0)
+  lastCheckIn    DateTime?
+
+  referralCode   String   @unique
+  referredById   String?
+  referredBy     User?    @relation("Referrals", fields: [referredById], references: [id])
+  referrals      User[]   @relation("Referrals")
+
+  banned         Boolean  @default(false)
+  banReason      String?
+  device         String?
+  lastIp         String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  completions    TaskCompletion[]
+  withdrawals    Withdrawal[]
+  referralEarnings ReferralEarning[] @relation("EarnerUser")
+}
+
+model AdTask {
+  id                   String    @id @default(cuid())
+  title                String
+  description          String?
+  type                 TaskType
+  network              AdNetwork @default(NONE)
+  adTrigger            AdTrigger @default(REWARDED_CALLBACK)
+
+  // ---- economics (admin controlled) ----
+  adminRevenuePerAction Float    // $ (or VND) the network ACTUALLY pays admin per completed view/action
+  revenueSharePercent   Float    @default(50) // % of adminRevenuePerAction paid to user (0-100)
+  fixedReward           Float?   // optional flat reward override for SOCIAL/CHECKIN tasks (no ad math)
+
+  cooldownSeconds      Int       @default(0)   // per-user cooldown between repeats
+  dailyLimit           Int       @default(0)   // 0 = unlimited, per-user per-day
+  totalLimitPerUser    Int       @default(0)   // 0 = unlimited, per-user lifetime cap
+  globalDailyLimit     Int       @default(0)   // 0 = unlimited, cap across ALL users per day (ad budget control)
+  globalTotalLimit     Int       @default(0)   // 0 = unlimited, cap across ALL users lifetime
+  minVipTier           Int       @default(0)   // gate task to VIP tiers
+
+  // ---- ad unit rotation (adTrigger = REWARDED_CALLBACK) ----
+  // List of ad zone/block IDs for this task's network. Each completion picks
+  // the next one in round-robin per user (index = user's completion count % length).
+  // Leave empty to fall back to the single default ID configured in the frontend.
+  zoneIds              Json?     // e.g. ["1234567", "1234568", "1234569"]
+
+  // ---- direct link rotation (adTrigger = DIRECT_LINK) ----
+  // List of raw URLs (e.g. Adsterra Direct Link). Rotates round-robin same as zoneIds.
+  directLinkUrls       Json?     // e.g. ["https://...", "https://..."]
+  dwellSeconds         Int       @default(8) // min seconds user must be away/back before claim unlocks
+
+  active               Boolean   @default(true)
+  sortOrder            Int       @default(0)
+
+  createdAt            DateTime  @default(now())
+  updatedAt             DateTime @updatedAt
+
+  completions          TaskCompletion[]
+}
+
+model TaskCompletion {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  taskId         String
+  task           AdTask   @relation(fields: [taskId], references: [id])
+
+  sourceRevenue  Float    // what admin actually received from the network for this event
+  userReward     Float    // what was credited to user's balance
+  adminProfit    Float    // sourceRevenue - userReward (always >= 0, enforced in economics.js)
+
+  zoneId         String?  // which ad zone/block ID was shown for this completion (rotation tracking)
+  ip             String?
+  device         String?
+  verified       Boolean  @default(true) // set false if postback/verify callback pending
+
+  createdAt      DateTime @default(now())
+
+  @@index([userId, taskId, createdAt])
+}
+
+// Tracks an in-progress "direct link" open so /complete can verify the user
+// actually waited `dwellSeconds` before claiming — the only fraud-resistance
+// available for networks that don't offer a real completion callback.
+model PendingLinkClick {
+  id        String   @id @default(cuid())
+  userId    String
+  taskId    String
+  url       String?
+  startedAt DateTime @default(now())
+
+  @@index([userId, taskId])
+}
+
+model Withdrawal {
+  id           String         @id @default(cuid())
+  userId       String
+  user         User           @relation(fields: [userId], references: [id])
+
+  amountRequested Float       // what user asked to withdraw
+  feePercent      Float       @default(5)   // admin margin #2 — withdrawal fee
+  feeAmount       Float
+  amountPaid      Float       // amountRequested - feeAmount
+
+  method       String         // e.g. "momo", "bank", "usdt"
+  destination  String         // account / wallet address
+
+  status       WithdrawStatus @default(PENDING)
+  adminNote    String?
+
+  createdAt    DateTime       @default(now())
+  processedAt  DateTime?
+}
+
+model ReferralEarning {
+  id              String   @id @default(cuid())
+  earnerId        String   // the referrer who gets the commission
+  earner          User     @relation("EarnerUser", fields: [earnerId], references: [id])
+  fromUserId      String   // the referred user whose task generated it
+  tier            Int      // 1, 2, or 3
+  commissionPercent Float  // % of that referred-user's userReward
+  amount          Float
+  createdAt       DateTime @default(now())
+}
+
+enum AdSlotPlacement {
+  GLOBAL_SCRIPT   // popunder, social bar — self-triggering, inject once, no container needed
+  BANNER          // needs a visible <div> container (banner, native banner)
+}
+
+enum AdSlotPage {
+  GLOBAL          // every page, injected once on app load
+  DASHBOARD
+  TASKS
+  WALLET
+  VIP
+}
+
+model AdSlot {
+  id          String          @id @default(cuid())
+  name        String          // just a label for you, e.g. "Adsterra Social Bar"
+  network     String          @default("adsterra") // free text — adsterra, propellerads, etc
+  placement   AdSlotPlacement
+  page        AdSlotPage      @default(GLOBAL)
+
+  // Paste the EXACT <script>...</script> snippet the network dashboard gives
+  // you. No parsing/guessing — whatever they hand you goes here verbatim.
+  rawEmbedCode String         @db.Text
+
+  active      Boolean         @default(true)
+  sortOrder   Int             @default(0)
+
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model AdminConfig {
+  id                     Int     @id @default(1)
+  defaultRevenueSharePercent Float @default(50) // fallback if task doesn't set its own
+  minWithdraw            Float   @default(20000)
+  withdrawFeePercent     Float   @default(5)
+  referralTier1Percent   Float   @default(10)
+  referralTier2Percent   Float   @default(5)
+  referralTier3Percent   Float   @default(2)
+  vipPrices              Json?   // { "1": 20000, "2": 50000, "3": 100000, "4": 200000 }
+  vipRevenueBoost        Json?   // { "1": 5, "2": 10, "3": 15, "4": 20 } extra % share for VIP tiers
+  interstitialEveryNClicks Int   @default(3) // show interstitial ad every N nav clicks (pure admin revenue)
+  maintenanceMode        Boolean @default(false)
+
+  // Raw <script> snippets from networks that self-inject site-wide (Adsterra
+  // Popunder / Social Bar / Native Banner, etc). No per-task reward, no
+  // callback — pure passive admin revenue running in the background.
+  // Shape: [{ "label": "Adsterra Popunder", "html": "<script>...</script>" }]
+  siteWideAdScripts      Json?
+  siteWideAdsEnabled     Boolean @default(true)
+
+  updatedAt              DateTime @updatedAt
+}
+
