@@ -10,7 +10,7 @@ router.get("/", async (req, res) => {
   const since = new Date();
   since.setHours(0, 0, 0, 0);
 
-  const [todayAgg, referralCount, referralEarnedAgg, recentCompletions, config] = await Promise.all([
+  const [todayAgg, referralCount, referralEarnedAgg, recentCompletions] = await Promise.all([
     prisma.taskCompletion.aggregate({
       where: { userId: user.id, createdAt: { gte: since } },
       _sum: { userReward: true },
@@ -27,7 +27,6 @@ router.get("/", async (req, res) => {
       take: 5,
       include: { task: { select: { title: true, type: true } } },
     }),
-    prisma.adminConfig.findUnique({ where: { id: 1 } }),
   ]);
 
   res.json({
@@ -43,8 +42,6 @@ router.get("/", async (req, res) => {
     referralCount,
     referralEarned: referralEarnedAgg._sum.amount || 0,
     recentCompletions,
-    siteWideAdsEnabled: config?.siteWideAdsEnabled ?? false,
-    siteWideAdScripts: config?.siteWideAdsEnabled ? (config.siteWideAdScripts || []) : [],
   });
 });
 
