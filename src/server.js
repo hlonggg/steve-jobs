@@ -6,6 +6,7 @@ const { telegramAuthMiddleware } = require("./lib/telegramAuth");
 const bot = require("./bot");
 
 const authRoutes = require("./routes/auth");
+const publicConfigRoutes = require("./routes/publicConfig");
 const dashboardRoutes = require("./routes/dashboard");
 const taskRoutes = require("./routes/tasks");
 const walletRoutes = require("./routes/wallet");
@@ -25,6 +26,9 @@ if (useWebhook) {
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "..", "public")));
+
+// truly public — no Telegram auth needed, just static config the frontend needs
+app.use("/api/public", publicConfigRoutes);
 
 // public (route itself still requires a verified Telegram session, just no user record needed yet)
 app.use("/api/auth", telegramAuthMiddleware, authRoutes);
