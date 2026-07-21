@@ -167,18 +167,51 @@
       <option value="CHECKIN">Checkin</option>
       <option value="OFFERWALL">Offerwall</option>
     </select>
-    <select id="t_network" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <select id="t_network" onchange="renderNetworkBlock()" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
       <option value="MONETAG">Monetag</option>
       <option value="ADEXIUM">Adexium</option>
       <option value="ADSGRAM">Adsgram</option>
+      <option value="ADSTERRA">Adsterra</option>
       <option value="NONE">Không (nhiệm vụ thường)</option>
     </select>
     <label class="text-xs text-muted">Network trả admin bao nhiêu / lượt (đ)</label>
     <input id="t_revenue" type="number" placeholder="VD: 200" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
     <label class="text-xs text-muted">% chia cho user (mặc định lấy config chung nếu bỏ trống)</label>
     <input id="t_share" type="number" placeholder="50" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
-    <label class="text-xs text-muted">Danh sách Zone/Block ID quảng cáo — cách nhau bằng dấu phẩy, sẽ luân phiên mỗi lần bấm</label>
-    <input id="t_zoneIds" placeholder="VD: 1234567, 1234568, 1234569" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+
+    <!-- ===== MONETAG: mỗi dòng là 1 script đầy đủ Monetag đưa cho bạn ===== -->
+    <div id="block_MONETAG" class="rounded-card bg-surface2 border border-border p-3 space-y-2 hidden">
+      <div class="text-xs font-semibold text-money">Monetag — dán script (mỗi ô 1 script riêng, luân phiên mỗi lần bấm)</div>
+      <div id="rows_MONETAG" class="space-y-2"></div>
+      <button type="button" onclick="addEntryRow('MONETAG')" class="text-xs bg-surface px-3 py-1.5 rounded-pill border border-border">+ Thêm script Monetag</button>
+    </div>
+
+    <!-- ===== ADEXIUM: mỗi dòng là 1 Widget ID ===== -->
+    <div id="block_ADEXIUM" class="rounded-card bg-surface2 border border-border p-3 space-y-2 hidden">
+      <div class="text-xs font-semibold text-money">Adexium — nhập Widget ID (mỗi ô 1 ID, luân phiên mỗi lần bấm)</div>
+      <div id="rows_ADEXIUM" class="space-y-2"></div>
+      <button type="button" onclick="addEntryRow('ADEXIUM')" class="text-xs bg-surface px-3 py-1.5 rounded-pill border border-border">+ Thêm ID Adexium</button>
+    </div>
+
+    <!-- ===== ADSGRAM: mỗi dòng là 1 Block ID ===== -->
+    <div id="block_ADSGRAM" class="rounded-card bg-surface2 border border-border p-3 space-y-2 hidden">
+      <div class="text-xs font-semibold text-money">Adsgram — nhập Block ID (mỗi ô 1 ID, luân phiên mỗi lần bấm)</div>
+      <div id="rows_ADSGRAM" class="space-y-2"></div>
+      <button type="button" onclick="addEntryRow('ADSGRAM')" class="text-xs bg-surface px-3 py-1.5 rounded-pill border border-border">+ Thêm ID Adsgram</button>
+    </div>
+
+    <!-- ===== ADSTERRA: mỗi dòng là 1 Smartlink/Direct Link URL ===== -->
+    <div id="block_ADSTERRA" class="rounded-card bg-surface2 border border-border p-3 space-y-2 hidden">
+      <div class="text-xs font-semibold text-money">Adsterra — dán Smartlink/Direct Link URL (mỗi ô 1 link, luân phiên mỗi lần bấm)</div>
+      <div class="text-[10px] text-muted -mt-1">
+        Adsterra không xác nhận được user xem xong (khác Monetag/Adexium/Adsgram), nên nhiệm vụ này hoạt động
+        theo kiểu: user bấm → mở link → chờ đủ thời gian tối thiểu bên dưới → mới nhận được thưởng.
+      </div>
+      <div id="rows_ADSTERRA" class="space-y-2"></div>
+      <button type="button" onclick="addEntryRow('ADSTERRA')" class="text-xs bg-surface px-3 py-1.5 rounded-pill border border-border">+ Thêm link Adsterra</button>
+      <label class="text-xs text-muted block pt-1">Thời gian chờ tối thiểu trước khi được nhận thưởng (giây)</label>
+      <input id="t_dwellSeconds" type="number" placeholder="8" class="w-full bg-surface border border-border rounded-pill px-4 py-2 text-sm">
+    </div>
 
     <div class="text-[11px] text-gold font-semibold pt-2">Giới hạn theo từng người dùng</div>
     <label class="text-xs text-muted">Cooldown giữa 2 lần làm (giây)</label>
@@ -274,7 +307,9 @@ async function loadTasks(){
         <div class="font-semibold text-sm">${t.title} <span class="text-[10px] text-muted">${t.network}</span></div>
         <div class="text-xs text-muted">Network trả: ${fmt(t.adminRevenuePerAction)}đ · User nhận ~${fmt(t.adminRevenuePerAction*(t.revenueSharePercent/100))}đ (${t.revenueSharePercent}%)</div>
         <div class="text-[10px] text-muted mt-0.5">
-          ${(t.zoneIds||[]).length ? `🔁 ${t.zoneIds.length} zone luân phiên` : "1 zone mặc định"}
+          ${t.network==='ADSTERRA'
+            ? `🔗 ${(t.directLinkUrls||[]).length} link luân phiên · chờ ${t.dwellSeconds||8}s`
+            : `🔁 ${(t.zoneIds||[]).length || 0} mục luân phiên`}
           ${t.dailyLimit ? ` · ${t.dailyLimit}/ngày/người` : ""}
           ${t.totalLimitPerUser ? ` · tối đa ${t.totalLimitPerUser}/người` : ""}
           ${t.globalDailyLimit ? ` · tổng ${t.globalDailyLimit}/ngày` : ""}
@@ -288,27 +323,78 @@ async function loadTasks(){
     </div>`).join("");
 }
 
-const taskFormFields = ["t_id","t_title","t_desc","t_revenue","t_share","t_cooldown","t_daily","t_zoneIds","t_totalPerUser","t_globalDaily","t_globalTotal"];
-function openTaskForm(){ taskModal.classList.remove("hidden"); }
-function closeTaskForm(){ taskModal.classList.add("hidden"); taskFormFields.forEach(id=>document.getElementById(id).value=""); }
+// ===== Per-network dynamic entry rows (replaces old single comma-separated field) =====
+// Keeping each entry in its own input avoids breaking on commas inside pasted
+// Monetag/Adsterra <script> code — the old "comma-separated in one line" approach.
+let networkEntries = { MONETAG: [], ADEXIUM: [], ADSGRAM: [], ADSTERRA: [] };
+
+function renderNetworkBlock() {
+  const net = t_network.value;
+  ["MONETAG","ADEXIUM","ADSGRAM","ADSTERRA"].forEach(n => {
+    document.getElementById(`block_${n}`).classList.toggle("hidden", n !== net);
+  });
+  if (networkEntries[net]) renderEntryRows(net);
+}
+
+function renderEntryRows(network) {
+  const container = document.getElementById(`rows_${network}`);
+  if (!container) return;
+  const isScript = network === "MONETAG"; // scripts get a textarea, IDs/URLs get a single-line input
+  container.innerHTML = networkEntries[network].map((val, i) => `
+    <div class="flex gap-2 items-start">
+      ${isScript
+        ? `<textarea rows="2" oninput="updateEntry('${network}',${i},this.value)" placeholder="Dán script Monetag tại đây" class="flex-1 bg-surface border border-border rounded-card px-3 py-2 text-xs font-mono">${escapeHtml(val)}</textarea>`
+        : `<input value="${escapeHtml(val)}" oninput="updateEntry('${network}',${i},this.value)" placeholder="${network==='ADSTERRA'?'https://...':'ID'}" class="flex-1 bg-surface border border-border rounded-pill px-3 py-2 text-xs">`
+      }
+      <button type="button" onclick="removeEntry('${network}',${i})" class="text-danger text-xs px-2 py-1.5">✕</button>
+    </div>`).join("") || '<div class="text-[11px] text-muted">Chưa có dòng nào — bấm nút bên dưới để thêm</div>';
+}
+
+function escapeHtml(s) { return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function addEntryRow(network) { networkEntries[network].push(""); renderEntryRows(network); }
+function updateEntry(network, i, val) { networkEntries[network][i] = val; }
+function removeEntry(network, i) { networkEntries[network].splice(i, 1); renderEntryRows(network); }
+
+const taskFormFields = ["t_id","t_title","t_desc","t_revenue","t_share","t_cooldown","t_daily","t_totalPerUser","t_globalDaily","t_globalTotal","t_dwellSeconds"];
+function openTaskForm(){
+  taskModal.classList.remove("hidden");
+  renderNetworkBlock();
+}
+function closeTaskForm(){
+  taskModal.classList.add("hidden");
+  taskFormFields.forEach(id=>document.getElementById(id).value="");
+  networkEntries = { MONETAG: [], ADEXIUM: [], ADSGRAM: [], ADSTERRA: [] };
+}
 function editTask(t){
   openTaskForm();
   t_id.value=t.id; t_title.value=t.title; t_desc.value=t.description||"";
   t_type.value=t.type; t_network.value=t.network; t_revenue.value=t.adminRevenuePerAction;
   t_share.value=t.revenueSharePercent; t_cooldown.value=t.cooldownSeconds; t_daily.value=t.dailyLimit;
-  t_zoneIds.value = (t.zoneIds||[]).join(", ");
   t_totalPerUser.value = t.totalLimitPerUser || 0;
   t_globalDaily.value = t.globalDailyLimit || 0;
   t_globalTotal.value = t.globalTotalLimit || 0;
+  t_dwellSeconds.value = t.dwellSeconds || 8;
+
+  networkEntries = { MONETAG: [], ADEXIUM: [], ADSGRAM: [], ADSTERRA: [] };
+  if (t.network === "ADSTERRA") networkEntries.ADSTERRA = t.directLinkUrls || [];
+  else if (networkEntries[t.network]) networkEntries[t.network] = t.zoneIds || [];
+  renderNetworkBlock();
 }
 async function saveTask(){
-  const zoneIds = t_zoneIds.value.split(",").map(s=>s.trim()).filter(Boolean);
+  const net = t_network.value;
+  const isAdsterra = net === "ADSTERRA";
+  const cleanEntries = (networkEntries[net] || []).map(s => s.trim()).filter(Boolean);
+
   const payload = {
-    title: t_title.value, description: t_desc.value, type: t_type.value, network: t_network.value,
+    title: t_title.value, description: t_desc.value, type: t_type.value, network: net,
+    adTrigger: isAdsterra ? "DIRECT_LINK" : "REWARDED_CALLBACK",
     adminRevenuePerAction: Number(t_revenue.value||0), revenueSharePercent: Number(t_share.value||50),
     cooldownSeconds: Number(t_cooldown.value||0), dailyLimit: Number(t_daily.value||0),
-    zoneIds, totalLimitPerUser: Number(t_totalPerUser.value||0),
+    totalLimitPerUser: Number(t_totalPerUser.value||0),
     globalDailyLimit: Number(t_globalDaily.value||0), globalTotalLimit: Number(t_globalTotal.value||0),
+    zoneIds: isAdsterra ? [] : cleanEntries,
+    directLinkUrls: isAdsterra ? cleanEntries : [],
+    dwellSeconds: Number(t_dwellSeconds.value || 8),
   };
   try {
     if (t_id.value) await api(`/api/admin/tasks/${t_id.value}`, { method:"PATCH", body: JSON.stringify(payload) });
