@@ -38,10 +38,20 @@ bot.command("invite", async (ctx) => {
   );
 });
 
-bot.launch();
-console.log("Telegram bot started");
-
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+// Admin entry point — MUST be opened this way, not via a plain browser URL.
+// admin.html calls backend APIs that require real Telegram `initData` for
+// auth (see telegramAuthMiddleware + ADMIN_TELEGRAM_IDS check in admin.js);
+// opening it outside Telegram has no initData and every request 401s.
+// Only visible/usable to Telegram IDs listed in ADMIN_TELEGRAM_IDS.
+bot.command("admin", async (ctx) => {
+  const allowlist = (process.env.ADMIN_TELEGRAM_IDS || "").split(",").map(s => s.trim());
+  if (!allowlist.includes(String(ctx.from.id))) return; // silently ignore for non-admins
+  await ctx.reply(
+    "🛠 Trang quản trị CoinVault",
+    Markup.inlineKeyboard([
+      Markup.button.webApp("Mở Admin Panel", `${APP_URL}/admin.html`),
+    ])
+  );
+});
 
 module.exports = bot;
