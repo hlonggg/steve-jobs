@@ -20,21 +20,25 @@ async function main() {
   });
 
   // NOTE: adminRevenuePerAction = the REAL per-view payout your ad network
-  // dashboard reports (check Monetag/Adexium/Adsgram stats page and update
-  // these numbers periodically — they fluctuate with fill rate & geo).
+  // dashboard reports (check Monetag/Adexium/Adsgram/Adsterra stats page and
+  // update these numbers periodically — they fluctuate with fill rate & geo).
   const tasks = [
     {
       title: "Xem video nhận thưởng",
       description: "Xem hết video quảng cáo để nhận tiền ngay",
       type: "REWARDED_VIDEO",
       network: "MONETAG",
+      adTrigger: "REWARDED_CALLBACK",
       adminRevenuePerAction: 200, // VND admin actually gets per view (example)
       revenueSharePercent: 50,
       cooldownSeconds: 30,
       dailyLimit: 60,
-      totalLimitPerUser: 0,
-      globalDailyLimit: 0,       // set a real number once you know your Monetag daily ad budget/fill
-      zoneIds: ["9000001", "9000002", "9000003"], // replace with your real Monetag zone IDs
+      // Monetag gives you a full <script> per zone — paste it exactly as-is.
+      // Replace these with the real scripts from your Monetag dashboard.
+      zoneIds: [
+        `<script src="https://libtl.com/sdk.js" data-zone="9000001" data-sdk="show_9000001"></script>`,
+        `<script src="https://libtl.com/sdk.js" data-zone="9000002" data-sdk="show_9000002"></script>`,
+      ],
       sortOrder: 1,
     },
     {
@@ -42,11 +46,13 @@ async function main() {
       description: "Nhận thưởng qua Adexium rewarded ad",
       type: "REWARDED_VIDEO",
       network: "ADEXIUM",
+      adTrigger: "REWARDED_CALLBACK",
       adminRevenuePerAction: 180,
       revenueSharePercent: 50,
       cooldownSeconds: 30,
       dailyLimit: 60,
-      zoneIds: ["adexium-zone-1", "adexium-zone-2"], // replace with your real Adexium placement IDs
+      // Adexium just gives you a Widget ID (`wid`) — no script needed.
+      zoneIds: ["YOUR_ADEXIUM_WIDGET_ID_1", "YOUR_ADEXIUM_WIDGET_ID_2"],
       sortOrder: 2,
     },
     {
@@ -54,12 +60,28 @@ async function main() {
       description: "Xem quảng cáo Adsgram để quay thưởng",
       type: "REWARDED_VIDEO",
       network: "ADSGRAM",
+      adTrigger: "REWARDED_CALLBACK",
       adminRevenuePerAction: 150,
       revenueSharePercent: 50,
       cooldownSeconds: 45,
       dailyLimit: 40,
       zoneIds: ["ads-block-1", "ads-block-2", "ads-block-3"], // replace with your real Adsgram block IDs
       sortOrder: 3,
+    },
+    {
+      title: "Truy cập trang đối tác (Adsterra)",
+      description: "Bấm vào, chờ vài giây rồi quay lại nhận thưởng",
+      type: "OFFERWALL",
+      network: "ADSTERRA",
+      adTrigger: "DIRECT_LINK", // Adsterra Direct Link/Smartlink has no reward callback,
+      adminRevenuePerAction: 120, // so completion is verified with a dwell timer instead
+      revenueSharePercent: 40,    // (lower share recommended since there's no watch verification)
+      cooldownSeconds: 60,
+      dailyLimit: 30,
+      dwellSeconds: 8,
+      // Adsterra Direct Link / Smartlink is just a URL, not a script.
+      directLinkUrls: ["https://YOUR-ADSTERRA-DIRECT-LINK-URL-1", "https://YOUR-ADSTERRA-DIRECT-LINK-URL-2"],
+      sortOrder: 4,
     },
     {
       title: "Điểm danh hàng ngày",
@@ -70,7 +92,7 @@ async function main() {
       fixedReward: 500,
       cooldownSeconds: 0,
       dailyLimit: 1,
-      sortOrder: 4,
+      sortOrder: 5,
     },
     {
       title: "Tham gia kênh Telegram",
@@ -81,7 +103,7 @@ async function main() {
       fixedReward: 2000,
       cooldownSeconds: 0,
       dailyLimit: 1,
-      sortOrder: 5,
+      sortOrder: 6,
     },
   ];
 
