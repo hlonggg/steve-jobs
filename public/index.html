@@ -64,6 +64,7 @@
         <div id="greetName" class="text-sm font-semibold leading-tight">Xin chào</div>
         <div id="vipBadge" class="text-[11px] text-muted leading-tight">Thành viên thường</div>
       </div>
+      <button id="adminBtn" onclick="openAdminPanel()" class="hidden w-8 h-8 rounded-full bg-surface border border-border items-center justify-center text-sm active:scale-95 transition ml-1" style="display:none">⚙️</button>
     </div>
     <div class="flex items-center gap-1 bg-surface border border-border rounded-pill px-2.5 py-1.5">
       <span class="text-gold text-xs">⚡</span>
@@ -123,8 +124,12 @@
       <div class="font-semibold text-sm">👥 Giới thiệu bạn bè</div>
       <span class="text-xs text-muted"><span id="refCount">0</span> người</span>
     </div>
-    <div class="text-xs text-muted mb-3">Hoa hồng 3 tầng: 10% / 5% / 2% trên mọi khoản bạn bè kiếm được — vĩnh viễn.</div>
-    <button onclick="shareInvite()" class="w-full bg-gold/10 text-gold border border-gold/30 rounded-pill py-2 text-xs font-bold">Chia sẻ link mời</button>
+    <div class="text-xs text-muted mb-3">Hoa hồng 3 tầng: 10% / 5% / 2% trên mọi khoản bạn bè kiếm được — vĩnh viễn. Ai giới thiệu càng nhiều, % tầng 1 càng cao.</div>
+    <div id="refLinkBox" class="bg-surface2 border border-border rounded-pill px-3 py-2 text-[11px] text-muted mb-3 truncate">Đang tải link...</div>
+    <div class="flex gap-2">
+      <button onclick="copyInviteLink()" class="flex-1 bg-gold/10 text-gold border border-gold/30 rounded-pill py-2 text-xs font-bold">📋 Copy link</button>
+      <button onclick="shareInvite()" class="flex-1 bg-surface2 border border-border rounded-pill py-2 text-xs font-bold">📤 Telegram</button>
+    </div>
   </div>
 
   <div class="rounded-card bg-surface border border-border p-4">
@@ -398,6 +403,7 @@ async function loadDashboard() {
   document.getElementById("refCount").textContent = d.referralCount;
   document.getElementById("vipBadge").textContent = d.vipTier > 0 ? `VIP ${d.vipTier}` : "Thành viên thường";
   document.getElementById("walletBalance").textContent = fmt(d.balance) + "đ";
+  document.getElementById("adminBtn").style.display = d.isAdmin ? "inline-flex" : "none";
 
   const list = document.getElementById("recentList");
   if (d.recentCompletions?.length) {
@@ -417,8 +423,54 @@ async function doCheckin() {
   } catch (e) { toast(e.message, "error"); }
 }
 
+function getInviteLink() {
+  if (!STATE.botUsername || !STATE.user?.referralCode) return null;
+  return `https://t.me/${STATE.botUsername}?start=${STATE.user.referralCode}`;
+}
+
+function renderInviteLink() {
+  const link = getInviteLink();
+  const box = document.getElementById("refLinkBox");
+  if (box) box.textContent = link || "Không tải được link, thử lại sau";
+}
+
+async function copyInviteLink() {
+  const link = getInviteLink();
+  if (!link) return toast("Chưa có link, thử lại sau", "error");
+  try {
+    await navigator.clipboard.writeText(link);
+    toast("Đã copy link!");
+  } catch (e) {
+    // fallback for webviews that block the Clipboard API
+    const ta = document.createElement("textarea");
+    ta.value = link;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    try {
+      document.execCommand("copy");
+      toast("Đã copy link!");
+    } catch {
+      toast("Không copy được — chép thủ công: " + link, "error");
+    }
+    ta.remove();
+  }
+}
+
 function shareInvite() {
-  tg?.openTelegramLink?.(`https://t.me/share/url?url=${encodeURIComponent("Tham gia CoinVault kiếm tiền cùng mình!")}`);
+  const link = getInviteLink();
+  if (!link) return toast("Chưa có link, thử lại sau", "error");
+  const text = "Tham gia CoinVault kiếm tiền cùng mình!";
+  tg?.openTelegramLink?.(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
+}
+
+// Same-origin navigation (not tg.openLink, which opens an external browser
+// and loses the Telegram session). Staying on the same domain keeps the
+// Telegram WebView bridge alive, so admin.html still gets valid initData —
+// the backend re-checks ADMIN_TELEGRAM_IDS independently either way.
+function openAdminPanel() {
+  location.href = "admin.html";
 }
 
 // ===================== TASKS =====================
@@ -561,10 +613,15 @@ async function init() {
   try {
     const params = new URLSearchParams(location.search);
     const refCode = params.get("ref");
-    const { user } = await api("/api/auth/session", { method: "POST", body: JSON.stringify({ refCode }) });
+    const [{ user }, publicConfig] = await Promise.all([
+      api("/api/auth/session", { method: "POST", body: JSON.stringify({ refCode }) }),
+      api("/api/public/config").catch(() => ({ botUsername: "" })),
+    ]);
     STATE.user = user;
+    STATE.botUsername = publicConfig.botUsername;
     document.getElementById("greetName").textContent = `Chào, ${user.firstName || user.username || "bạn"}`;
     document.getElementById("avatar").textContent = (user.firstName || "?")[0].toUpperCase();
+    renderInviteLink();
     showTab("dashboard");
     await loadDashboard();
   } catch (e) {
