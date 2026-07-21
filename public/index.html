@@ -6,14 +6,15 @@
 <title>CoinVault</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
-<!-- ===================== AD NETWORK SDKs ======================
-     Replace the placeholder zone IDs with your real ones from each
-     network's dashboard. Exact SDK snippets differ slightly by account,
-     so double check against your Monetag / Adexium / Adsgram panel. -->
-<script src="https://libtl.com/sdk.js" data-zone="YOUR_MONETAG_ZONE_ID" data-sdk="show_MONETAG_ZONE_ID"></script>
+<!-- ===================== AD NETWORK SDKs =====================
+     Monetag: loaded dynamically per task (admin pastes the full <script>
+     Monetag gives you, per ad zone, in the admin panel — no static include
+     needed here, see loadMonetagScript() below).
+     Adsgram: one SDK for all block IDs, block ID passed per call.
+     Adexium: confirmed real SDK from https://docs.adexium.io — Widget ID
+     (`wid`) based, loaded once here. -->
 <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
-<!-- Adexium: paste the exact <script> tag from your Adexium dashboard here -->
-<!-- <script src="https://adexium.example/sdk.js" data-publisher="YOUR_ADEXIUM_ID"></script> -->
+<script src="https://cdn.adexium.tech/assets/js/adexium-widget.min.js"></script>
 
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -226,57 +227,98 @@ function toast(msg, kind = "money") {
 }
 
 // ===================== AD SDK WRAPPER (multi-zone rotation) =====================
-// Each task can carry a list of zone/block IDs configured in the admin panel.
-// The API tells us which one to use THIS press (`nextZoneId`, round-robin per
-// user), so consecutive clicks alternate between different ad units instead
-// of always hitting the same one — spreads fill-rate load and avoids the
-// same creative repeating back to back.
-const loadedMonetagZones = new Set();
+// Each task carries a list of network-specific entries configured in the admin
+// panel (Monetag = full <script> per zone, Adexium = Widget ID, Adsgram =
+// Block ID). The API tells us which one to use THIS press (`nextZoneId`,
+// round-robin per user), so consecutive clicks alternate between different
+// ad units — spreads fill-rate load and avoids the same creative repeating.
+const loadedMonetagScripts = new Set(); // dedupe by raw script string
+const adexiumWidgets = new Map();       // cache 1 widget instance per Widget ID
 
-function loadMonetagZone(zoneId) {
+function extractScriptAttrs(rawHtml) {
+  const temp = document.createElement("div");
+  temp.innerHTML = rawHtml;
+  const el = temp.querySelector("script");
+  if (!el) return null;
+  const zone = el.getAttribute("data-zone");
+  const sdk = el.getAttribute("data-sdk") || (zone ? `show_${zone}` : null);
+  return { sdk };
+}
+
+function waitForGlobalFn(name, timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
-    if (loadedMonetagZones.has(zoneId)) return resolve();
-    const s = document.createElement("script");
-    s.src = "https://libtl.com/sdk.js";
-    s.dataset.zone = zoneId;
-    s.dataset.sdk = `show_${zoneId}`;
-    s.onload = () => { loadedMonetagZones.add(zoneId); resolve(); };
-    s.onerror = reject;
-    document.head.appendChild(s);
+    const start = Date.now();
+    (function poll() {
+      if (typeof window[name] === "function") return resolve(window[name]);
+      if (Date.now() - start > timeoutMs) return reject(new Error("Quảng cáo chưa tải kịp, thử lại sau"));
+      setTimeout(poll, 150);
+    })();
   });
 }
 
-// Each network exposes a different global function once its SDK script loads.
-// This wrapper resolves ONLY when the user has watched the ad to completion
-// (onReward fires) — that's the only moment we call /complete, so admin never
-// pays for un-watched ads.
-async function showRewardedAd(network, zoneId) {
-  try {
-    if (network === "MONETAG") {
-      const zone = zoneId || "YOUR_MONETAG_ZONE_ID"; // fallback default zone
-      await loadMonetagZone(zone);
-      const fn = window[`show_${zone}`];
-      if (fn) return await fn();
-      throw new Error("Monetag SDK chưa sẵn sàng");
-    }
-    if (network === "ADSGRAM" && window.Adsgram) {
-      const blockId = zoneId || "YOUR_ADSGRAM_BLOCK_ID";
-      const AdController = window.Adsgram.init({ blockId });
-      return await AdController.show();
-    }
-    if (network === "ADEXIUM" && window.Adexium?.showRewarded) {
-      // TODO: replace with the exact call from your Adexium dashboard snippet
-      // — pass `zoneId` through if their SDK supports multiple placement IDs.
-      return await new Promise((resolve, reject) =>
-        window.Adexium.showRewarded({ zoneId, onReward: resolve, onError: reject })
-      );
-    }
-    // Fallback for local dev / SDK not loaded yet — simulate a short watch
-    console.warn(`Ad SDK for ${network} (zone ${zoneId}) not available — using dev fallback`);
-    await new Promise(r => setTimeout(r, 1200));
-  } catch (e) {
-    throw e;
+function loadMonetagScript(rawScript) {
+  return new Promise((resolve) => {
+    if (loadedMonetagScripts.has(rawScript)) return resolve();
+    loadedMonetagScripts.add(rawScript);
+    injectRawAdHtml(rawScript, document.head);
+    resolve();
+  });
+}
+
+function getAdexiumWidget(wid) {
+  if (!adexiumWidgets.has(wid)) {
+    if (!window.AdexiumWidget) throw new Error("Adexium SDK chưa tải xong");
+    adexiumWidgets.set(wid, new window.AdexiumWidget({ wid, adFormat: "interstitial", debug: false }));
   }
+  return adexiumWidgets.get(wid);
+}
+
+// Each network exposes a different way to confirm the ad was actually
+// watched. This wrapper resolves ONLY on that real completion signal —
+// that's the only moment we call /complete, so admin never pays for
+// un-watched ads.
+//   MONETAG: `entry` = full raw <script> pasted in admin panel per zone.
+//   ADEXIUM: `entry` = Widget ID (`wid`); resolves on `adPlaybackCompleted`.
+//   ADSGRAM: `entry` = Block ID.
+async function showRewardedAd(network, entry) {
+  if (network === "MONETAG") {
+    if (!entry) throw new Error("Nhiệm vụ chưa cấu hình script Monetag");
+    const { sdk } = extractScriptAttrs(entry) || {};
+    if (!sdk) throw new Error("Script Monetag không hợp lệ (thiếu data-zone/data-sdk)");
+    await loadMonetagScript(entry);
+    const fn = await waitForGlobalFn(sdk);
+    return await fn();
+  }
+
+  if (network === "ADSGRAM") {
+    if (!window.Adsgram) throw new Error("Adsgram SDK chưa tải xong");
+    if (!entry) throw new Error("Nhiệm vụ chưa cấu hình Block ID Adsgram");
+    const AdController = window.Adsgram.init({ blockId: entry });
+    return await AdController.show();
+  }
+
+  if (network === "ADEXIUM") {
+    if (!entry) throw new Error("Nhiệm vụ chưa cấu hình Widget ID Adexium");
+    const widget = getAdexiumWidget(entry);
+    return await new Promise((resolve, reject) => {
+      const onReceived = (ad) => widget.displayAd(ad);
+      const onCompleted = () => { cleanup(); resolve(); };
+      const onNoAd = () => { cleanup(); reject(new Error("Hết quảng cáo, thử lại sau")); };
+      function cleanup() {
+        widget.off("adReceived", onReceived);
+        widget.off("adPlaybackCompleted", onCompleted);
+        widget.off("noAdFound", onNoAd);
+      }
+      widget.on("adReceived", onReceived);
+      widget.on("adPlaybackCompleted", onCompleted); // real "watched to completion" event
+      widget.on("noAdFound", onNoAd);
+      widget.requestAd("interstitial");
+    });
+  }
+
+  // Fallback for local dev / unknown network — simulate a short watch
+  console.warn(`Ad SDK for ${network} (entry ${entry}) not available — using dev fallback`);
+  await new Promise(r => setTimeout(r, 1200));
 }
 
 function showInterstitial() {
@@ -346,7 +388,6 @@ function showTab(name) {
 // ===================== DASHBOARD =====================
 async function loadDashboard() {
   const d = await api("/api/dashboard");
-  injectSiteWideAds(d.siteWideAdScripts);
   document.getElementById("balanceVal").textContent = fmt(d.balance);
   document.getElementById("todayEarned").textContent = "+" + fmt(d.todayEarned) + "đ";
   document.getElementById("totalEarned").textContent = fmt(d.totalEarned) + "đ";
@@ -457,27 +498,9 @@ async function claimDirectLink(taskId) {
   }
 }
 
-// ===================== SITE-WIDE PASSIVE ADS (Adsterra Popunder / Social Bar etc) =====================
-// Raw <script> snippets pasted in the admin panel, injected once on app load.
-// Pure background admin revenue — no reward, no user interaction required.
-let siteWideAdsInjected = false;
-function injectSiteWideAds(scripts) {
-  if (siteWideAdsInjected || !Array.isArray(scripts) || scripts.length === 0) return;
-  siteWideAdsInjected = true;
-  scripts.forEach(entry => {
-    try {
-      const container = document.createElement("div");
-      container.innerHTML = entry.html;
-      // re-create <script> tags so the browser actually executes them
-      container.querySelectorAll("script").forEach(oldScript => {
-        const s = document.createElement("script");
-        [...oldScript.attributes].forEach(a => s.setAttribute(a.name, a.value));
-        s.text = oldScript.text;
-        document.body.appendChild(s);
-      });
-    } catch (e) { console.warn("Site-wide ad inject failed:", entry.label, e); }
-  });
-}
+// Note: site-wide passive ads (Adsterra Popunder/Social Bar etc) are handled
+// by the Ad Slot system — see loadAdSlotsForPage() above, which is called on
+// every tab switch and already injects any active GLOBAL_SCRIPT slots once.
 
 // ===================== WALLET =====================
 async function loadWallet() {
