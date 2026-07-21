@@ -238,13 +238,5 @@ model AdminConfig {
   interstitialEveryNClicks Int   @default(3) // show interstitial ad every N nav clicks (pure admin revenue)
   maintenanceMode        Boolean @default(false)
 
-  // Raw <script> snippets from networks that self-inject site-wide (Adsterra
-  // Popunder / Social Bar / Native Banner, etc). No per-task reward, no
-  // callback — pure passive admin revenue running in the background.
-  // Shape: [{ "label": "Adsterra Popunder", "html": "<script>...</script>" }]
-  siteWideAdScripts      Json?
-  siteWideAdsEnabled     Boolean @default(true)
-
   updatedAt              DateTime @updatedAt
 }
-
