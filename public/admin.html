@@ -299,8 +299,10 @@ async function loadOverview(){
   ov_pending.textContent = d.pendingWithdrawals;
 }
 
+let cachedTasks = [];
 async function loadTasks(){
   const { tasks } = await api("/api/admin/tasks");
+  cachedTasks = tasks;
   taskAdminList.innerHTML = tasks.map(t => `
     <div class="rounded-card bg-surface border border-border p-3 flex items-center justify-between">
       <div>
@@ -317,10 +319,14 @@ async function loadTasks(){
         </div>
       </div>
       <div class="flex gap-2">
-        <button onclick='editTask(${JSON.stringify(t)})' class="text-xs bg-surface2 px-3 py-1.5 rounded-pill">Sửa</button>
+        <button onclick="editTaskById('${t.id}')" class="text-xs bg-surface2 px-3 py-1.5 rounded-pill">Sửa</button>
         <button onclick="toggleTask('${t.id}', ${!t.active})" class="text-xs px-3 py-1.5 rounded-pill ${t.active?'bg-money text-bg':'bg-danger/20 text-danger'}">${t.active?'Bật':'Tắt'}</button>
       </div>
     </div>`).join("");
+}
+function editTaskById(id) {
+  const t = cachedTasks.find(x => x.id === id);
+  if (t) editTask(t);
 }
 
 // ===== Per-network dynamic entry rows (replaces old single comma-separated field) =====
@@ -404,8 +410,10 @@ async function saveTask(){
 }
 async function toggleTask(id, active){ await api(`/api/admin/tasks/${id}`, { method:"PATCH", body: JSON.stringify({active}) }); loadTasks(); }
 
+let cachedSlots = [];
 async function loadSlots(){
   const { slots } = await api("/api/admin/adslots");
+  cachedSlots = slots;
   slotAdminList.innerHTML = slots.length ? slots.map(s => `
     <div class="rounded-card bg-surface border border-border p-3 flex items-center justify-between">
       <div>
@@ -413,7 +421,7 @@ async function loadSlots(){
         <div class="text-xs text-muted">${s.placement==='GLOBAL_SCRIPT'?'Tự chạy':'Banner'} · ${s.page}</div>
       </div>
       <div class="flex gap-2">
-        <button onclick='editSlot(${JSON.stringify(s)})' class="text-xs bg-surface2 px-3 py-1.5 rounded-pill">Sửa</button>
+        <button onclick="editSlotById('${s.id}')" class="text-xs bg-surface2 px-3 py-1.5 rounded-pill">Sửa</button>
         <button onclick="toggleSlot('${s.id}', ${!s.active})" class="text-xs px-3 py-1.5 rounded-pill ${s.active?'bg-money text-bg':'bg-danger/20 text-danger'}">${s.active?'Bật':'Tắt'}</button>
       </div>
     </div>`).join("") : '<div class="text-xs text-muted">Chưa có Ad Slot nào</div>';
@@ -424,6 +432,10 @@ function editSlot(s){
   openSlotForm();
   s_id.value=s.id; s_name.value=s.name; s_network.value=s.network;
   s_placement.value=s.placement; s_page.value=s.page; s_code.value=s.rawEmbedCode;
+}
+function editSlotById(id) {
+  const s = cachedSlots.find(x => x.id === id);
+  if (s) editSlot(s);
 }
 async function saveSlot(){
   const payload = {
