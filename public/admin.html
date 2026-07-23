@@ -231,11 +231,12 @@
       <button type="button" onclick="addEntryRow('MONETAG')" class="text-xs bg-surface px-3 py-1.5 rounded-pill border border-border">+ Thêm script Monetag</button>
     </div>
 
-    <!-- ===== ADEXIUM: mỗi dòng là 1 Widget ID ===== -->
+    <!-- ===== ADEXIUM: mỗi dòng cần 2 ID khác nhau ===== -->
     <div id="block_ADEXIUM" class="rounded-card bg-surface2 border border-border p-3 space-y-2 hidden">
-      <div class="text-xs font-semibold text-money">Adexium — nhập Widget ID (mỗi ô 1 ID, luân phiên mỗi lần bấm)</div>
+      <div class="text-xs font-semibold text-money">Adexium — mỗi dòng cần 2 mã (Adexium dùng 2 ID khác nhau cho cùng 1 placement)</div>
+      <div class="text-[10px] text-muted -mt-1">WID lấy trong trang sửa placement (chuỗi dài). Stats ID là số cạnh tên placement trong danh sách "My Placements" (VD #13328).</div>
       <div id="rows_ADEXIUM" class="space-y-2"></div>
-      <button type="button" onclick="addEntryRow('ADEXIUM')" class="text-xs bg-surface px-3 py-1.5 rounded-pill border border-border">+ Thêm ID Adexium</button>
+      <button type="button" onclick="addEntryRow('ADEXIUM')" class="text-xs bg-surface px-3 py-1.5 rounded-pill border border-border">+ Thêm placement Adexium</button>
     </div>
 
     <!-- ===== ADSGRAM: mỗi dòng là 1 Block ID ===== -->
@@ -400,6 +401,23 @@ function renderNetworkBlock() {
 function renderEntryRows(network) {
   const container = document.getElementById(`rows_${network}`);
   if (!container) return;
+
+  if (network === "ADEXIUM") {
+    container.innerHTML = networkEntries.ADEXIUM.map((entry, i) => `
+      <div class="border border-border rounded-card p-2 space-y-1.5">
+        <div>
+          <label class="text-[10px] text-muted">Placement ID (WID) — dùng để hiển thị quảng cáo</label>
+          <input value="${escapeHtml(entry.wid||'')}" oninput="updateAdexiumEntry(${i},'wid',this.value)" placeholder="VD: aef669c8-49f5-4530-a3bc-897e0e0705dd" class="w-full bg-surface border border-border rounded-pill px-3 py-2 text-xs">
+        </div>
+        <div>
+          <label class="text-[10px] text-muted">Stats ID (số, cạnh tên placement trong list) — dùng để đồng bộ CPM</label>
+          <input value="${escapeHtml(entry.statsId||'')}" oninput="updateAdexiumEntry(${i},'statsId',this.value)" placeholder="VD: 13328" class="w-full bg-surface border border-border rounded-pill px-3 py-2 text-xs">
+        </div>
+        <button type="button" onclick="removeEntry('ADEXIUM',${i})" class="text-danger text-xs px-2">✕ Xoá dòng này</button>
+      </div>`).join("") || '<div class="text-[11px] text-muted">Chưa có dòng nào — bấm nút bên dưới để thêm</div>';
+    return;
+  }
+
   const isScript = network === "MONETAG"; // scripts get a textarea, IDs/URLs get a single-line input
   container.innerHTML = networkEntries[network].map((val, i) => `
     <div class="flex gap-2 items-start">
@@ -412,8 +430,12 @@ function renderEntryRows(network) {
 }
 
 function escapeHtml(s) { return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-function addEntryRow(network) { networkEntries[network].push(""); renderEntryRows(network); }
+function addEntryRow(network) {
+  networkEntries[network].push(network === "ADEXIUM" ? { wid: "", statsId: "" } : "");
+  renderEntryRows(network);
+}
 function updateEntry(network, i, val) { networkEntries[network][i] = val; }
+function updateAdexiumEntry(i, field, val) { networkEntries.ADEXIUM[i][field] = val; }
 function removeEntry(network, i) { networkEntries[network].splice(i, 1); renderEntryRows(network); }
 
 const taskFormFields = ["t_id","t_title","t_desc","t_revenue","t_share","t_cooldown","t_daily","t_totalPerUser","t_globalDaily","t_globalTotal","t_dwellSeconds"];
@@ -437,14 +459,31 @@ function editTask(t){
   t_dwellSeconds.value = t.dwellSeconds || 8;
 
   networkEntries = { MONETAG: [], ADEXIUM: [], ADSGRAM: [], ADSTERRA: [] };
-  if (t.network === "ADSTERRA") networkEntries.ADSTERRA = t.directLinkUrls || [];
-  else if (networkEntries[t.network]) networkEntries[t.network] = t.zoneIds || [];
+  if (t.network === "ADSTERRA") {
+    networkEntries.ADSTERRA = t.directLinkUrls || [];
+  } else if (t.network === "ADEXIUM") {
+    // migrate old plain-string entries (before the WID/StatsID split) safely
+    networkEntries.ADEXIUM = (t.zoneIds || []).map(e =>
+      typeof e === "string" ? { wid: e, statsId: "" } : e
+    );
+  } else if (networkEntries[t.network]) {
+    networkEntries[t.network] = t.zoneIds || [];
+  }
   renderNetworkBlock();
 }
 async function saveTask(){
   const net = t_network.value;
   const isAdsterra = net === "ADSTERRA";
-  const cleanEntries = (networkEntries[net] || []).map(s => s.trim()).filter(Boolean);
+  const isAdexium = net === "ADEXIUM";
+
+  let cleanEntries;
+  if (isAdexium) {
+    cleanEntries = (networkEntries.ADEXIUM || [])
+      .map(e => ({ wid: (e.wid||"").trim(), statsId: (e.statsId||"").trim() }))
+      .filter(e => e.wid); // wid is required, statsId optional (sync just won't work without it)
+  } else {
+    cleanEntries = (networkEntries[net] || []).map(s => s.trim()).filter(Boolean);
+  }
 
   const payload = {
     title: t_title.value, description: t_desc.value, type: t_type.value, network: net,
