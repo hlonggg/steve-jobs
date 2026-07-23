@@ -44,6 +44,7 @@
   <button onclick="showTab('overview')" class="tabbtn" data-tab="overview">Tổng quan</button>
   <button onclick="showTab('tasks')" class="tabbtn" data-tab="tasks">Nhiệm vụ / CPM</button>
   <button onclick="showTab('adslots')" class="tabbtn" data-tab="adslots">Ad Slots</button>
+  <button onclick="showTab('reconcile')" class="tabbtn" data-tab="reconcile">Đối soát</button>
   <button onclick="showTab('withdrawals')" class="tabbtn" data-tab="withdrawals">Rút tiền</button>
   <button onclick="showTab('config')" class="tabbtn" data-tab="config">Cấu hình</button>
 </nav>
@@ -100,6 +101,32 @@
   <div id="slotAdminList" class="space-y-2"></div>
 </section>
 
+<!-- RECONCILIATION -->
+<section id="tab-reconcile" class="hidden space-y-3">
+  <div class="rounded-card bg-surface2 border border-gold/30 p-3 text-xs text-muted">
+    💡 Cuối ngày, vào dashboard network xem "Revenue"/"Earnings" thực nhận, nhập
+    vào đây để biết chính xác lời/lỗ, và có gợi ý rate chuẩn cho ngày mai —
+    thay vì đoán mò như hiện tại.
+  </div>
+  <div class="rounded-card bg-surface border border-border p-4 space-y-3">
+    <select id="rc_taskId" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm"></select>
+    <input id="rc_date" type="date" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <button onclick="loadReconciliation()" class="w-full bg-surface2 py-2.5 rounded-pill text-sm font-bold">Xem số liệu</button>
+  </div>
+  <div id="rc_result" class="hidden rounded-card bg-surface border border-border p-4 space-y-3">
+    <div class="flex justify-between text-xs"><span class="text-muted">Số lượt xem</span><span id="rc_views" class="font-bold"></span></div>
+    <div class="flex justify-between text-xs"><span class="text-muted">Đã trả user</span><span id="rc_paid" class="font-bold text-danger"></span></div>
+    <div class="flex justify-between text-xs"><span class="text-muted">Rate hiện tại</span><span id="rc_currentRate" class="font-bold"></span></div>
+    <input id="rc_actualRevenue" type="number" placeholder="Doanh thu THẬT nhận từ network (đ)" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <button onclick="computeReconciliation()" class="w-full bg-gold text-bg font-bold py-2.5 rounded-pill text-sm">Tính lời/lỗ</button>
+    <div id="rc_verdict" class="hidden pt-2 border-t border-border space-y-2">
+      <div class="flex justify-between text-sm"><span class="text-muted">Lời/Lỗ hôm đó</span><span id="rc_profit" class="font-bold"></span></div>
+      <div class="flex justify-between text-sm"><span class="text-muted">Rate đề xuất cho ngày mai</span><span id="rc_suggested" class="font-bold text-gold"></span></div>
+      <button onclick="applyReconciliation()" class="w-full bg-money text-bg font-bold py-2.5 rounded-pill text-sm">Áp dụng (làm mượt dần, không nhảy cứng)</button>
+    </div>
+  </div>
+</section>
+
 <!-- WITHDRAWALS -->
 <section id="tab-withdrawals" class="hidden space-y-2">
   <div id="withdrawAdminList"></div>
@@ -117,6 +144,24 @@
     <input id="cfg_withdrawFee" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
     <label class="text-xs text-muted">Interstitial ad mỗi N lần bấm menu</label>
     <input id="cfg_interstitial" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">Tỷ giá USD → VNĐ (dùng để quy đổi doanh thu Adexium)</label>
+    <input id="cfg_usdRate" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <button onclick="saveConfig()" class="w-full bg-gold text-bg font-bold py-2.5 rounded-pill text-sm">Lưu cấu hình</button>
+  </div>
+
+  <div class="rounded-card bg-surface border border-border p-4 space-y-3">
+    <div class="font-semibold text-sm mb-1">Gói VIP — giá & % boost</div>
+    <div class="text-[11px] text-muted mb-2">Mỗi gói: user trả giá này (trừ từ balance) để được cộng thêm % vào tỷ lệ chia sẻ mặc định. Sàn margin 8% của admin luôn được giữ nguyên bất kể boost bao nhiêu.</div>
+    <div id="vipTierRows" class="space-y-2"></div>
+    <button type="button" onclick="addVipTierRow()" class="w-full bg-surface2 text-xs py-2 rounded-pill">+ Thêm gói VIP</button>
+    <button onclick="saveConfig()" class="w-full bg-gold text-bg font-bold py-2.5 rounded-pill text-sm">Lưu cấu hình</button>
+  </div>
+
+  <div class="rounded-card bg-surface border border-border p-4 space-y-3">
+    <div class="font-semibold text-sm mb-1">Thưởng % theo số lượng ref (tầng 1)</div>
+    <div class="text-[11px] text-muted mb-2">Ai giới thiệu được càng nhiều người thì % hoa hồng tầng 1 (mặc định 10%) của họ càng tăng. VD: đủ 10 ref → +2%, đủ 50 ref → +5%. Chỉ áp dụng tầng 1, không ảnh hưởng tầng 2/3.</div>
+    <div id="refBoostRows" class="space-y-2"></div>
+    <button type="button" onclick="addRefBoostRow()" class="w-full bg-surface2 text-xs py-2 rounded-pill">+ Thêm mốc</button>
     <button onclick="saveConfig()" class="w-full bg-gold text-bg font-bold py-2.5 rounded-pill text-sm">Lưu cấu hình</button>
   </div>
 </section>
@@ -280,11 +325,12 @@ async function api(path, opts={}) {
 function fmt(n){ return Math.round(n||0).toLocaleString("vi-VN"); }
 
 function showTab(name){
-  ["overview","tasks","adslots","withdrawals","config"].forEach(t => document.getElementById(`tab-${t}`).classList.toggle("hidden", t!==name));
+  ["overview","tasks","adslots","reconcile","withdrawals","config"].forEach(t => document.getElementById(`tab-${t}`).classList.toggle("hidden", t!==name));
   document.querySelectorAll(".tabbtn").forEach(b => b.classList.toggle("active", b.dataset.tab===name));
   if (name==="overview") loadOverview();
   if (name==="tasks") loadTasks();
   if (name==="adslots") loadSlots();
+  if (name==="reconcile") loadReconcileTaskOptions();
   if (name==="withdrawals") loadWithdrawals();
   if (name==="config") loadConfig();
 }
@@ -319,6 +365,7 @@ async function loadTasks(){
         </div>
       </div>
       <div class="flex gap-2">
+        ${t.network === 'ADEXIUM' ? `<button onclick="syncAdexium('${t.id}')" class="text-xs bg-gold/10 text-gold border border-gold/30 px-3 py-1.5 rounded-pill">🔄 Đồng bộ CPM</button>` : ''}
         <button onclick="editTaskById('${t.id}')" class="text-xs bg-surface2 px-3 py-1.5 rounded-pill">Sửa</button>
         <button onclick="toggleTask('${t.id}', ${!t.active})" class="text-xs px-3 py-1.5 rounded-pill ${t.active?'bg-money text-bg':'bg-danger/20 text-danger'}">${t.active?'Bật':'Tắt'}</button>
       </div>
@@ -327,6 +374,14 @@ async function loadTasks(){
 function editTaskById(id) {
   const t = cachedTasks.find(x => x.id === id);
   if (t) editTask(t);
+}
+async function syncAdexium(id) {
+  try {
+    const r = await api(`/api/admin/tasks/${id}/sync-adexium?days=1`, { method: "POST" });
+    if (r.note) return alert(r.note);
+    alert(`Đồng bộ xong: ${fmt(r.oldRate)}đ → ${fmt(r.newRate)}đ/view\nThực đo: $${r.totalRevenueUsd} / ${r.totalImpressions} view (${r.dateRange})`);
+    loadTasks();
+  } catch (e) { alert(e.message); }
 }
 
 // ===== Per-network dynamic entry rows (replaces old single comma-separated field) =====
@@ -450,6 +505,50 @@ async function saveSlot(){
 }
 async function toggleSlot(id, active){ await api(`/api/admin/adslots/${id}`, { method:"PATCH", body: JSON.stringify({active}) }); loadSlots(); }
 
+// ---------- Reconciliation ----------
+let rc_data = null;
+async function loadReconcileTaskOptions() {
+  const { tasks } = await api("/api/admin/tasks");
+  cachedTasks = tasks; // reuse cache from Nhiệm vụ tab
+  rc_taskId.innerHTML = tasks.map(t => `<option value="${t.id}">${t.title} (${t.network})</option>`).join("");
+  if (!rc_date.value) rc_date.value = new Date().toISOString().slice(0, 10);
+}
+async function loadReconciliation() {
+  if (!rc_taskId.value || !rc_date.value) return alert("Chọn nhiệm vụ và ngày");
+  try {
+    rc_data = await api(`/api/admin/reconciliation?taskId=${rc_taskId.value}&date=${rc_date.value}`);
+    rc_views.textContent = rc_data.viewCount;
+    rc_paid.textContent = fmt(rc_data.totalUserPaid) + "đ";
+    rc_currentRate.textContent = fmt(rc_data.task.currentRate) + "đ/view";
+    rc_result.classList.remove("hidden");
+    rc_verdict.classList.add("hidden");
+    rc_actualRevenue.value = "";
+  } catch(e) { alert(e.message); }
+}
+function computeReconciliation() {
+  if (!rc_data) return;
+  const actualRevenue = Number(rc_actualRevenue.value || 0);
+  const profit = actualRevenue - rc_data.totalUserPaid;
+  const suggestedRate = rc_data.viewCount > 0 ? Math.round(actualRevenue / rc_data.viewCount) : rc_data.task.currentRate;
+  rc_profit.textContent = (profit >= 0 ? "+" : "") + fmt(profit) + "đ";
+  rc_profit.className = "font-bold " + (profit >= 0 ? "text-money" : "text-danger");
+  rc_suggested.textContent = fmt(suggestedRate) + "đ/view";
+  rc_verdict.dataset.suggested = suggestedRate;
+  rc_verdict.classList.remove("hidden");
+}
+async function applyReconciliation() {
+  if (!rc_data) return;
+  const actualRevenue = Number(rc_actualRevenue.value || 0);
+  try {
+    const r = await api(`/api/admin/reconciliation/apply`, {
+      method: "POST",
+      body: JSON.stringify({ taskId: rc_data.task.id, actualRevenue, viewCount: rc_data.viewCount, alpha: 0.4 }),
+    });
+    alert(`Đã cập nhật (làm mượt dần): ${fmt(r.oldRate)}đ → ${fmt(r.newRate)}đ/view\n(Số thực đo được: ${fmt(r.realRatePerView)}đ/view)`);
+    loadReconciliation();
+  } catch(e) { alert(e.message); }
+}
+
 async function loadWithdrawals(){
   const { withdrawals } = await api("/api/admin/withdrawals?status=PENDING");
   withdrawAdminList.innerHTML = withdrawals.length ? withdrawals.map(w => `
@@ -466,20 +565,74 @@ async function loadWithdrawals(){
 }
 async function processWithdraw(id, status){ await api(`/api/admin/withdrawals/${id}`, { method:"PATCH", body: JSON.stringify({status}) }); loadWithdrawals(); loadOverview(); }
 
+let vipTierRows = []; // [{tier, price, boost}]
+let refBoostRows = []; // [{count, percent}]
 async function loadConfig(){
   const { config } = await api("/api/admin/config");
   cfg_share.value = config.defaultRevenueSharePercent;
   cfg_minWithdraw.value = config.minWithdraw;
   cfg_withdrawFee.value = config.withdrawFeePercent;
   cfg_interstitial.value = config.interstitialEveryNClicks;
+  cfg_usdRate.value = config.usdToVndRate || 26300;
+
+  const prices = config.vipPrices || {};
+  const boosts = config.vipRevenueBoost || {};
+  const tiers = new Set([...Object.keys(prices), ...Object.keys(boosts)]);
+  vipTierRows = [...tiers].map(t => ({ tier: Number(t), price: Number(prices[t] || 0), boost: Number(boosts[t] || 0) }))
+    .sort((a, b) => a.tier - b.tier);
+  renderVipTierRows();
+
+  refBoostRows = Object.entries(config.referralVolumeBoosts || {})
+    .map(([count, percent]) => ({ count: Number(count), percent: Number(percent) }))
+    .sort((a, b) => a.count - b.count);
+  renderRefBoostRows();
 }
+function renderVipTierRows() {
+  const container = document.getElementById("vipTierRows");
+  container.innerHTML = vipTierRows.map((row, i) => `
+    <div class="flex gap-2 items-center">
+      <span class="text-xs text-gold font-bold w-14">VIP ${row.tier}</span>
+      <input type="number" value="${row.price}" placeholder="Giá (đ)" oninput="vipTierRows[${i}].price=Number(this.value)" class="flex-1 bg-surface2 border border-border rounded-pill px-3 py-2 text-xs">
+      <input type="number" value="${row.boost}" placeholder="+%" oninput="vipTierRows[${i}].boost=Number(this.value)" class="w-16 bg-surface2 border border-border rounded-pill px-3 py-2 text-xs">
+      <span class="text-muted text-xs">%</span>
+      <button type="button" onclick="vipTierRows.splice(${i},1); renderVipTierRows()" class="text-danger text-xs px-2">✕</button>
+    </div>`).join("") || '<div class="text-[11px] text-muted">Chưa có gói VIP nào</div>';
+}
+function addVipTierRow() {
+  const nextTier = vipTierRows.length ? Math.max(...vipTierRows.map(r => r.tier)) + 1 : 1;
+  vipTierRows.push({ tier: nextTier, price: 20000, boost: 5 });
+  renderVipTierRows();
+}
+function renderRefBoostRows() {
+  const container = document.getElementById("refBoostRows");
+  container.innerHTML = refBoostRows.map((row, i) => `
+    <div class="flex gap-2 items-center">
+      <input type="number" value="${row.count}" placeholder="Số ref tối thiểu" oninput="refBoostRows[${i}].count=Number(this.value)" class="flex-1 bg-surface2 border border-border rounded-pill px-3 py-2 text-xs">
+      <span class="text-muted text-xs">refs →</span>
+      <input type="number" value="${row.percent}" placeholder="+%" oninput="refBoostRows[${i}].percent=Number(this.value)" class="w-20 bg-surface2 border border-border rounded-pill px-3 py-2 text-xs">
+      <span class="text-muted text-xs">%</span>
+      <button type="button" onclick="refBoostRows.splice(${i},1); renderRefBoostRows()" class="text-danger text-xs px-2">✕</button>
+    </div>`).join("") || '<div class="text-[11px] text-muted">Chưa có mốc nào — mặc định mọi người đều nhận 10%/5%/2% cố định</div>';
+}
+function addRefBoostRow() { refBoostRows.push({ count: 10, percent: 2 }); renderRefBoostRows(); }
+
 async function saveConfig(){
   try {
+    const vipPrices = {};
+    const vipRevenueBoost = {};
+    vipTierRows.forEach(r => { vipPrices[String(r.tier)] = r.price; vipRevenueBoost[String(r.tier)] = r.boost; });
+
+    const referralVolumeBoosts = {};
+    refBoostRows.forEach(r => { if (r.count > 0) referralVolumeBoosts[String(r.count)] = r.percent; });
+
     await api("/api/admin/config", { method:"PATCH", body: JSON.stringify({
       defaultRevenueSharePercent: Number(cfg_share.value),
       minWithdraw: Number(cfg_minWithdraw.value),
       withdrawFeePercent: Number(cfg_withdrawFee.value),
       interstitialEveryNClicks: Number(cfg_interstitial.value),
+      usdToVndRate: Number(cfg_usdRate.value),
+      vipPrices, vipRevenueBoost,
+      referralVolumeBoosts,
     })});
     alert("Đã lưu");
   } catch(e){ alert(e.message); }
