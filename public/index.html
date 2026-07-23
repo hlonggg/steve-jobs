@@ -303,8 +303,12 @@ async function showRewardedAd(network, entry) {
   }
 
   if (network === "ADEXIUM") {
-    if (!entry) throw new Error("Nhiệm vụ chưa cấu hình Widget ID Adexium");
-    const widget = getAdexiumWidget(entry);
+    if (!entry) throw new Error("Nhiệm vụ chưa cấu hình Adexium");
+    // entry is {wid, statsId}; the SDK only needs wid. Fallback to plain string
+    // for any old data saved before the WID/StatsID split.
+    const wid = typeof entry === "string" ? entry : entry.wid;
+    if (!wid) throw new Error("Nhiệm vụ chưa cấu hình Widget ID (WID) Adexium");
+    const widget = getAdexiumWidget(wid);
     return await new Promise((resolve, reject) => {
       const onReceived = (ad) => widget.displayAd(ad);
       const onCompleted = () => { cleanup(); resolve(); };
@@ -613,12 +617,14 @@ async function init() {
   try {
     const params = new URLSearchParams(location.search);
     const refCode = params.get("ref");
-    const [{ user }, publicConfig] = await Promise.all([
+    const [{ user }, publicConfig, config] = await Promise.all([
       api("/api/auth/session", { method: "POST", body: JSON.stringify({ refCode }) }),
       api("/api/public/config").catch(() => ({ botUsername: "" })),
+      api("/api/config").catch(() => null),
     ]);
     STATE.user = user;
     STATE.botUsername = publicConfig.botUsername;
+    STATE.config = config;
     document.getElementById("greetName").textContent = `Chào, ${user.firstName || user.username || "bạn"}`;
     document.getElementById("avatar").textContent = (user.firstName || "?")[0].toUpperCase();
     renderInviteLink();
