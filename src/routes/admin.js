@@ -108,8 +108,10 @@ router.post("/tasks/:id/sync-adexium", async (req, res) => {
   if (!task) return res.status(404).json({ error: "Không tìm thấy nhiệm vụ" });
   if (task.network !== "ADEXIUM") return res.status(400).json({ error: "Chỉ dùng được cho nhiệm vụ Adexium" });
 
-  const widgetIds = Array.isArray(task.zoneIds) ? task.zoneIds : [];
-  if (widgetIds.length === 0) return res.status(400).json({ error: "Nhiệm vụ chưa có Widget ID nào" });
+  const widgetIds = (Array.isArray(task.zoneIds) ? task.zoneIds : [])
+    .map(e => (typeof e === "string" ? e : e.statsId))
+    .filter(Boolean);
+  if (widgetIds.length === 0) return res.status(400).json({ error: "Nhiệm vụ chưa có Stats ID nào (khác với WID) — vào Sửa nhiệm vụ điền thêm" });
   if (!process.env.ADEXIUM_API_TOKEN) return res.status(400).json({ error: "Chưa cấu hình ADEXIUM_API_TOKEN trong biến môi trường" });
 
   const end = new Date();
