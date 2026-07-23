@@ -233,6 +233,13 @@ model AdminConfig {
   referralTier1Percent   Float   @default(10)
   referralTier2Percent   Float   @default(5)
   referralTier3Percent   Float   @default(2)
+  // Volume-based boost: the MORE people someone has referred, the higher %
+  // commission they earn on tier-1 (direct) referrals — rewards top referrers.
+  // Shape: { "referralCountThreshold": extraPercentPoints }, e.g.
+  // { "10": 2, "50": 5, "100": 10 } → 10+ refs = +2%, 50+ = +5%, 100+ = +10%
+  // (added on top of referralTier1Percent, highest threshold met wins).
+  referralVolumeBoosts   Json?
+  usdToVndRate           Float   @default(26300) // for converting Adexium API revenue (USD) to VND
   vipPrices              Json?   // { "1": 20000, "2": 50000, "3": 100000, "4": 200000 }
   vipRevenueBoost        Json?   // { "1": 5, "2": 10, "3": 15, "4": 20 } extra % share for VIP tiers
   interstitialEveryNClicks Int   @default(3) // show interstitial ad every N nav clicks (pure admin revenue)
