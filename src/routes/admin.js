@@ -96,6 +96,100 @@ router.patch("/withdrawals/:id", async (req, res) => {
   res.json({ withdrawal: updated });
 });
 
+// ---------- Adexium auto-sync (real Stats API — fully automatic for this network) ----------
+// POST /api/admin/tasks/:id/sync-adexium?days=1 — pulls yesterday's (or last
+// N days') real revenue/impressions from Adexium's own API and smoothly
+// nudges adminRevenuePerAction toward the real observed rate.
+router.post("/tasks/:id/sync-adexium", async (req, res) => {
+  const { getTaskAdexiumTotals } = require("../lib/adexiumApi");
+  const days = Math.max(1, Number(req.query.days) || 1);
+
+  const task = await prisma.adTask.findUnique({ where: { id: req.params.id } });
+  if (!task) return res.status(404).json({ error: "Không tìm thấy nhiệm vụ" });
+  if (task.network !== "ADEXIUM") return res.status(400).json({ error: "Chỉ dùng được cho nhiệm vụ Adexium" });
+
+  const widgetIds = Array.isArray(task.zoneIds) ? task.zoneIds : [];
+  if (widgetIds.length === 0) return res.status(400).json({ error: "Nhiệm vụ chưa có Widget ID nào" });
+  if (!process.env.ADEXIUM_API_TOKEN) return res.status(400).json({ error: "Chưa cấu hình ADEXIUM_API_TOKEN trong biến môi trường" });
+
+  const end = new Date();
+  const start = new Date(); start.setDate(start.getDate() - days);
+  const fmtDate = (d) => d.toISOString().slice(0, 10);
+
+  try {
+    const { totalRevenueUsd, totalImpressions } = await getTaskAdexiumTotals(widgetIds, fmtDate(start), fmtDate(end));
+    if (totalImpressions === 0) {
+      return res.json({ ok: true, note: "Chưa có impression nào trong khoảng thời gian này, giữ nguyên rate cũ", oldRate: task.adminRevenuePerAction });
+    }
+
+    const config = await prisma.adminConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
+    const realRatePerViewVnd = (totalRevenueUsd / totalImpressions) * (config.usdToVndRate || 26300);
+
+    const EMA_ALPHA = 0.4; // smooth toward real number, don't jump on one unusual day
+    const newRate = Math.round(task.adminRevenuePerAction * (1 - EMA_ALPHA) + realRatePerViewVnd * EMA_ALPHA);
+
+    await prisma.adTask.update({ where: { id: task.id }, data: { adminRevenuePerAction: newRate } });
+
+    res.json({
+      ok: true,
+      oldRate: task.adminRevenuePerAction,
+      newRate,
+      realRatePerViewVnd: Math.round(realRatePerViewVnd),
+      totalRevenueUsd,
+      totalImpressions,
+      dateRange: `${fmtDate(start)} → ${fmtDate(end)}`,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---------- Reconciliation: compare real network revenue vs what was paid out ----------
+// GET /api/admin/reconciliation?taskId=X&date=YYYY-MM-DD
+// Read-only aggregation — admin then manually enters the REAL revenue figure
+// from the network's own dashboard on the frontend to compute profit/loss.
+router.get("/reconciliation", async (req, res) => {
+  const { taskId, date } = req.query;
+  if (!taskId || !date) return res.status(400).json({ error: "Thiếu taskId hoặc date" });
+
+  const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+
+  const [task, agg] = await Promise.all([
+    prisma.adTask.findUnique({ where: { id: taskId } }),
+    prisma.taskCompletion.aggregate({
+      where: { taskId, createdAt: { gte: dayStart, lt: dayEnd } },
+      _sum: { userReward: true },
+      _count: true,
+    }),
+  ]);
+  if (!task) return res.status(404).json({ error: "Không tìm thấy nhiệm vụ" });
+
+  res.json({
+    task: { id: task.id, title: task.title, network: task.network, currentRate: task.adminRevenuePerAction },
+    viewCount: agg._count || 0,
+    totalUserPaid: agg._sum.userReward || 0,
+  });
+});
+
+// POST /api/admin/reconciliation/apply — auto-adjust using exponential moving
+// average (smooths toward the real number over several days instead of a
+// hard jump, so one unusually good/bad day doesn't overcorrect the rate).
+router.post("/reconciliation/apply", async (req, res) => {
+  const { taskId, actualRevenue, viewCount, alpha } = req.body;
+  if (!taskId || actualRevenue == null || !viewCount) return res.status(400).json({ error: "Thiếu dữ liệu" });
+
+  const task = await prisma.adTask.findUnique({ where: { id: taskId } });
+  if (!task) return res.status(404).json({ error: "Không tìm thấy nhiệm vụ" });
+
+  const realRatePerView = actualRevenue / viewCount;
+  const smoothing = Math.min(Math.max(Number(alpha) || 0.4, 0.05), 1); // clamp 0.05–1
+  const newRate = Math.round(task.adminRevenuePerAction * (1 - smoothing) + realRatePerView * smoothing);
+
+  await prisma.adTask.update({ where: { id: taskId }, data: { adminRevenuePerAction: newRate } });
+  res.json({ ok: true, oldRate: task.adminRevenuePerAction, realRatePerView: Math.round(realRatePerView), newRate });
+});
+
 // ---------- Ad Slots (raw-script embeds — Adsterra, PropellerAds, etc) ----------
 router.get("/adslots", async (req, res) => {
   const slots = await prisma.adSlot.findMany({ orderBy: { sortOrder: "asc" } });
