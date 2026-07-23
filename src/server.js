@@ -85,7 +85,9 @@ async function syncAllAdexiumTasks() {
     const fmtDate = (d) => d.toISOString().slice(0, 10);
 
     for (const task of tasks) {
-      const widgetIds = Array.isArray(task.zoneIds) ? task.zoneIds : [];
+      const widgetIds = (Array.isArray(task.zoneIds) ? task.zoneIds : [])
+        .map(e => (typeof e === "string" ? e : e.statsId))
+        .filter(Boolean);
       if (widgetIds.length === 0) continue;
       try {
         const { totalRevenueUsd, totalImpressions } = await getTaskAdexiumTotals(widgetIds, fmtDate(start), fmtDate(end));
