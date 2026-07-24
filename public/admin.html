@@ -45,6 +45,7 @@
   <button onclick="showTab('tasks')" class="tabbtn" data-tab="tasks">Nhiệm vụ / CPM</button>
   <button onclick="showTab('adslots')" class="tabbtn" data-tab="adslots">Ad Slots</button>
   <button onclick="showTab('reconcile')" class="tabbtn" data-tab="reconcile">Đối soát</button>
+  <button onclick="showTab('broadcast')" class="tabbtn" data-tab="broadcast">Thông báo</button>
   <button onclick="showTab('withdrawals')" class="tabbtn" data-tab="withdrawals">Rút tiền</button>
   <button onclick="showTab('config')" class="tabbtn" data-tab="config">Cấu hình</button>
 </nav>
@@ -124,6 +125,26 @@
       <div class="flex justify-between text-sm"><span class="text-muted">Rate đề xuất cho ngày mai</span><span id="rc_suggested" class="font-bold text-gold"></span></div>
       <button onclick="applyReconciliation()" class="w-full bg-money text-bg font-bold py-2.5 rounded-pill text-sm">Áp dụng (làm mượt dần, không nhảy cứng)</button>
     </div>
+  </div>
+</section>
+
+<!-- BROADCAST -->
+<section id="tab-broadcast" class="hidden space-y-3">
+  <div class="rounded-card bg-surface2 border border-gold/30 p-3 text-xs text-muted">
+    💡 Gửi tin nhắn riêng tới TẤT CẢ user đã từng /start bot (không phải nhóm/kênh). Hỗ trợ Markdown: *đậm*, _nghiêng_. Gửi chậm (~20 tin/giây) để tránh bị Telegram giới hạn.
+  </div>
+  <div class="rounded-card bg-surface border border-border p-4 space-y-3">
+    <textarea id="bc_message" rows="5" placeholder="Nội dung thông báo..." class="w-full bg-surface2 border border-border rounded-card px-4 py-3 text-sm"></textarea>
+    <label class="flex items-center gap-2 text-xs text-muted">
+      <input type="checkbox" id="bc_withButton" class="w-4 h-4">
+      Kèm nút "🚀 Mở CoinVault" bên dưới tin nhắn
+    </label>
+    <button id="bc_sendBtn" onclick="sendBroadcast()" class="w-full bg-money text-bg font-bold py-2.5 rounded-pill text-sm">Gửi cho tất cả user</button>
+  </div>
+  <div id="bc_progressBox" class="hidden rounded-card bg-surface border border-border p-4 space-y-2">
+    <div class="flex justify-between text-xs"><span class="text-muted">Tiến trình</span><span id="bc_progressText" class="font-bold"></span></div>
+    <div class="h-2 bg-surface2 rounded-full overflow-hidden"><div id="bc_progressBar" class="h-full bg-money transition-all" style="width:0%"></div></div>
+    <div class="flex justify-between text-[11px] text-muted"><span>✓ Thành công: <span id="bc_sent">0</span></span><span>✗ Thất bại: <span id="bc_failed">0</span></span></div>
   </div>
 </section>
 
@@ -326,7 +347,7 @@ async function api(path, opts={}) {
 function fmt(n){ return Math.round(n||0).toLocaleString("vi-VN"); }
 
 function showTab(name){
-  ["overview","tasks","adslots","reconcile","withdrawals","config"].forEach(t => document.getElementById(`tab-${t}`).classList.toggle("hidden", t!==name));
+  ["overview","tasks","adslots","reconcile","broadcast","withdrawals","config"].forEach(t => document.getElementById(`tab-${t}`).classList.toggle("hidden", t!==name));
   document.querySelectorAll(".tabbtn").forEach(b => b.classList.toggle("active", b.dataset.tab===name));
   if (name==="overview") loadOverview();
   if (name==="tasks") loadTasks();
@@ -543,6 +564,44 @@ async function saveSlot(){
   } catch(e){ alert(e.message); }
 }
 async function toggleSlot(id, active){ await api(`/api/admin/adslots/${id}`, { method:"PATCH", body: JSON.stringify({active}) }); loadSlots(); }
+
+// ---------- Broadcast ----------
+let bc_pollTimer = null;
+async function sendBroadcast() {
+  const message = bc_message.value.trim();
+  if (!message) return alert("Nhập nội dung thông báo đã");
+  if (!confirm(`Gửi tin này cho TẤT CẢ user? Không thể huỷ giữa chừng.`)) return;
+
+  bc_sendBtn.disabled = true;
+  try {
+    const r = await api("/api/admin/broadcast", {
+      method: "POST",
+      body: JSON.stringify({ message, withButton: bc_withButton.checked }),
+    });
+    bc_progressBox.classList.remove("hidden");
+    bc_pollTimer = setInterval(pollBroadcastStatus, 1000);
+    pollBroadcastStatus();
+  } catch (e) {
+    alert(e.message);
+    bc_sendBtn.disabled = false;
+  }
+}
+async function pollBroadcastStatus() {
+  try {
+    const s = await api("/api/admin/broadcast/status");
+    const done = s.sent + s.failed;
+    const pct = s.total > 0 ? Math.round((done / s.total) * 100) : 0;
+    bc_progressText.textContent = `${done}/${s.total} (${pct}%)`;
+    bc_progressBar.style.width = pct + "%";
+    bc_sent.textContent = s.sent;
+    bc_failed.textContent = s.failed;
+    if (!s.running && done > 0) {
+      clearInterval(bc_pollTimer);
+      bc_sendBtn.disabled = false;
+      bc_message.value = "";
+    }
+  } catch (e) { clearInterval(bc_pollTimer); bc_sendBtn.disabled = false; }
+}
 
 // ---------- Reconciliation ----------
 let rc_data = null;
