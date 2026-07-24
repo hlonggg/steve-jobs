@@ -96,6 +96,41 @@ router.patch("/withdrawals/:id", async (req, res) => {
   res.json({ withdrawal: updated });
 });
 
+// ---------- Broadcast: send a message to every user via the bot ----------
+const bot = require("../bot");
+let broadcastState = { running: false, sent: 0, failed: 0, total: 0, startedAt: null, finishedAt: null };
+
+router.post("/broadcast", async (req, res) => {
+  if (broadcastState.running) return res.status(409).json({ error: "Đang có 1 đợt gửi khác chưa xong, đợi hoàn tất đã" });
+  const { message, withButton } = req.body;
+  if (!message || !message.trim()) return res.status(400).json({ error: "Thiếu nội dung tin nhắn" });
+
+  const users = await prisma.user.findMany({ where: { banned: false }, select: { telegramId: true } });
+  broadcastState = { running: true, sent: 0, failed: 0, total: users.length, startedAt: new Date(), finishedAt: null };
+  res.json({ ok: true, total: users.length });
+
+  // fire-and-forget — progress is polled via GET /broadcast/status
+  (async () => {
+    const { Markup } = require("telegraf");
+    const extra = withButton
+      ? Markup.inlineKeyboard([Markup.button.webApp("🚀 Mở CoinVault", process.env.MINI_APP_URL)])
+      : undefined;
+    for (const user of users) {
+      try {
+        await bot.telegram.sendMessage(user.telegramId, message, { parse_mode: "Markdown", ...extra });
+        broadcastState.sent++;
+      } catch (e) {
+        broadcastState.failed++; // user blocked bot / deleted account — expected, keep going
+      }
+      await new Promise(r => setTimeout(r, 50)); // ~20 msg/sec, safely under Telegram's rate limit
+    }
+    broadcastState.running = false;
+    broadcastState.finishedAt = new Date();
+  })();
+});
+
+router.get("/broadcast/status", (req, res) => res.json(broadcastState));
+
 // ---------- Adexium auto-sync (real Stats API — fully automatic for this network) ----------
 // POST /api/admin/tasks/:id/sync-adexium?days=1 — pulls yesterday's (or last
 // N days') real revenue/impressions from Adexium's own API and smoothly
