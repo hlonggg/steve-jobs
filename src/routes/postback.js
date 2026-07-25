@@ -15,7 +15,9 @@ const router = express.Router();
  * pays MORE than the real number, never goes negative.
  */
 router.get("/monetag", async (req, res) => {
-  const { zone_id, telegram_id, estimated_price, reward } = req.query;
+  const { zone_id, sub_zone_id, telegram_id, estimated_price, event_type, reward, ymid, request_var } = req.query;
+  console.log("MONETAG POSTBACK:", { telegram_id, zone_id, sub_zone_id, event_type, reward, estimated_price, ymid, request_var });
+
   if (!zone_id || !telegram_id || estimated_price == null) return res.json({ ok: true, note: "missing fields, ignored" });
 
   const { splitTaskReward } = require("../lib/economics");
@@ -36,7 +38,13 @@ router.get("/monetag", async (req, res) => {
   // "pending" forever. Admin absorbs exactly the provisional amount already
   // paid, nothing more — this is the capped downside the provisional system
   // was built for.
-  if (reward === "no") {
+  // Official macro values are "valued"/"not_valued" per Monetag's Macro
+  // Reference docs (their dashboard UI describes it as "yes"/"no" in plain
+  // English, which may or may not be the literal string — check both to be safe).
+  const isPaid = reward === "valued" || reward === "yes";
+  const isExplicitlyUnpaid = reward === "not_valued" || reward === "no";
+
+  if (isExplicitlyUnpaid) {
     await prisma.taskCompletion.update({
       where: { id: completion.id },
       data: { verified: true, sourceRevenue: 0, adminProfit: -completion.userReward },
