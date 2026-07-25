@@ -3,6 +3,59 @@ const prisma = require("../lib/prisma");
 const router = express.Router();
 
 /**
+ * MONETAG — real documented postback format (GET, query-param macros):
+ *   GET /api/postback/monetag?ymid=X&event=Y&zone_id=Z&telegram_id=T&estimated_price=P
+ * https://docs.monetag.com/docs/postbacks/
+ *
+ * Correlates back to the pending (unverified) TaskCompletion we created
+ * optimistically when the frontend callback fired, using zone_id + the
+ * user's telegramId (most recent unverified match, within a time window).
+ * Tops up the difference between what was already paid provisionally and
+ * the real reward computed from Monetag's actual estimated_price — never
+ * pays MORE than the real number, never goes negative.
+ */
+router.get("/monetag", async (req, res) => {
+  const { zone_id, telegram_id, estimated_price, event } = req.query;
+  if (!zone_id || !telegram_id || estimated_price == null) return res.json({ ok: true, note: "missing fields, ignored" });
+  if (event && event !== "impression" && event !== "reward") return res.json({ ok: true, note: `event type ${event} ignored` });
+
+  const { splitTaskReward } = require("../lib/economics");
+
+  const user = await prisma.user.findUnique({ where: { telegramId: String(telegram_id) } });
+  if (!user) return res.json({ ok: true, note: "user not found" });
+
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+  const completion = await prisma.taskCompletion.findFirst({
+    where: { userId: user.id, zoneId: String(zone_id), verified: false, createdAt: { gte: fiveMinAgo } },
+    orderBy: { createdAt: "desc" },
+    include: { task: true },
+  });
+  if (!completion) return res.json({ ok: true, note: "no matching pending completion" });
+
+  const config = await prisma.adminConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
+  const realSourceRevenue = Number(estimated_price) * (config.usdToVndRate || 26300);
+  const real = splitTaskReward({ task: completion.task, user, adminConfig: config, sourceRevenue: realSourceRevenue });
+
+  const alreadyPaid = completion.userReward;
+  const topUp = Math.max(0, Math.round((real.userReward - alreadyPaid) * 100) / 100);
+
+  await prisma.$transaction([
+    prisma.taskCompletion.update({
+      where: { id: completion.id },
+      data: {
+        verified: true,
+        sourceRevenue: realSourceRevenue,
+        userReward: alreadyPaid + topUp,
+        adminProfit: Math.round((realSourceRevenue - (alreadyPaid + topUp)) * 100) / 100,
+      },
+    }),
+    ...(topUp > 0 ? [prisma.user.update({ where: { id: user.id }, data: { balance: { increment: topUp }, totalEarned: { increment: topUp } } })] : []),
+  ]);
+
+  res.json({ ok: true, confirmed: true, topUp });
+});
+
+/**
  * POST /api/postback/:network?secret=YOUR_SECRET
  *
  * Point this URL at any ad network's "server-to-server postback" /
