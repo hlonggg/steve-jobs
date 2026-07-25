@@ -167,6 +167,8 @@
     <input id="cfg_interstitial" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
     <label class="text-xs text-muted">Tỷ giá USD → VNĐ (dùng để quy đổi doanh thu Adexium)</label>
     <input id="cfg_usdRate" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">% trả tạm ứng ngay cho Monetag (còn lại cộng bù khi có postback xác nhận)</label>
+    <input id="cfg_monetagProvisional" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
     <button onclick="saveConfig()" class="w-full bg-gold text-bg font-bold py-2.5 rounded-pill text-sm">Lưu cấu hình</button>
   </div>
 
@@ -672,6 +674,7 @@ async function loadConfig(){
   cfg_withdrawFee.value = config.withdrawFeePercent;
   cfg_interstitial.value = config.interstitialEveryNClicks;
   cfg_usdRate.value = config.usdToVndRate || 26300;
+  cfg_monetagProvisional.value = config.monetagProvisionalPercent ?? 60;
 
   const prices = config.vipPrices || {};
   const boosts = config.vipRevenueBoost || {};
@@ -729,6 +732,7 @@ async function saveConfig(){
       withdrawFeePercent: Number(cfg_withdrawFee.value),
       interstitialEveryNClicks: Number(cfg_interstitial.value),
       usdToVndRate: Number(cfg_usdRate.value),
+      monetagProvisionalPercent: Number(cfg_monetagProvisional.value),
       vipPrices, vipRevenueBoost,
       referralVolumeBoosts,
     })});
