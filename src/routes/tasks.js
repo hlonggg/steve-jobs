@@ -1,7 +1,7 @@
 const express = require("express");
 const prisma = require("../lib/prisma");
 const { checkTaskEligibility, getNextZoneId, getNextDirectLink } = require("../middleware/rateLimiter");
-const { splitTaskReward, computeReferralChain } = require("../lib/economics");
+const { splitTaskReward, computeReferralCommission } = require("../lib/economics");
 const router = express.Router();
 
 // GET /api/tasks — list active tasks visible to this user's VIP tier
@@ -89,27 +89,39 @@ router.post("/:id/complete", async (req, res) => {
   // sourceRevenue = what the network actually paid admin. Always trust the
   // admin-configured rate, never a client-supplied number (anti-fraud).
   const sourceRevenue = task.adminRevenuePerAction;
-  const { userReward, adminProfit, sharePercent } = splitTaskReward({
-    task, user, adminConfig: config, sourceRevenue,
-  });
-
-  const expGain = Math.max(1, Math.round(userReward / 10));
+  const expGain = Math.max(1, Math.round(task.adminRevenuePerAction / 20)); // rough estimate, doesn't depend on exact reward
   // Recomputed server-side (not trusted from client) so rotation stats stay accurate.
   const zoneId = await getNextZoneId(user.id, task);
+
+  let payoutNow, completionData;
+  if (task.network === "MONETAG") {
+    // Monetag's frontend Promise resolving does NOT guarantee the ad was
+    // actually billable (their own docs say so) — pay a smaller provisional
+    // amount now, top up the rest only if their server postback confirms it.
+    // See src/routes/postback.js "monetag" handler for the confirmation side.
+    const provisionalPercent = config.monetagProvisionalPercent ?? 60;
+    const projected = splitTaskReward({ task, user, adminConfig: config, sourceRevenue });
+    payoutNow = Math.round(projected.userReward * (provisionalPercent / 100) * 100) / 100;
+    completionData = { sourceRevenue: 0, userReward: payoutNow, adminProfit: -payoutNow, verified: false };
+  } else {
+    const full = splitTaskReward({ task, user, adminConfig: config, sourceRevenue });
+    payoutNow = full.userReward;
+    completionData = { sourceRevenue, userReward: full.userReward, adminProfit: full.adminProfit, verified: true };
+  }
 
   const [completion] = await prisma.$transaction([
     prisma.taskCompletion.create({
       data: {
-        userId: user.id, taskId: task.id,
-        sourceRevenue, userReward, adminProfit, zoneId,
+        userId: user.id, taskId: task.id, zoneId,
+        ...completionData,
         ip: req.ip, device: req.headers["user-agent"],
       },
     }),
     prisma.user.update({
       where: { id: user.id },
       data: {
-        balance: { increment: userReward },
-        totalEarned: { increment: userReward },
+        balance: { increment: payoutNow },
+        totalEarned: { increment: payoutNow },
         exp: { increment: expGain },
         energy: { increment: task.type === "REWARDED_VIDEO" ? 2 : 0 },
       },
@@ -117,27 +129,36 @@ router.post("/:id/complete", async (req, res) => {
   ]);
 
   // referral commissions — paid from admin's own margin, up to 3 tiers
-  await payReferralChain(user, userReward, config);
+  await payReferralChain(user, payoutNow, config);
 
-  res.json({ ok: true, userReward, sharePercent, completionId: completion.id });
+  res.json({ ok: true, userReward: payoutNow, provisional: task.network === "MONETAG", completionId: completion.id });
 });
 
 async function payReferralChain(user, userReward, config) {
-  const chain = computeReferralChain({ referredUser: user, userReward, adminConfig: config });
   let current = user;
-  for (const tier of chain) {
+  for (let level = 1; level <= 3; level++) {
     if (!current.referredById) break;
     const referrer = await prisma.user.findUnique({ where: { id: current.referredById } });
     if (!referrer || referrer.banned) break;
-    if (tier.amount > 0) {
+
+    // Only level 1 needs the referrer's own referral count (for the volume boost).
+    const referrerReferralCount = level === 1
+      ? await prisma.user.count({ where: { referredById: referrer.id } })
+      : 0;
+
+    const commission = computeReferralCommission({
+      level, userReward, adminConfig: config, referrerReferralCount,
+    });
+
+    if (commission.amount > 0) {
       await prisma.$transaction([
         prisma.referralEarning.create({
           data: {
             earnerId: referrer.id, fromUserId: user.id,
-            tier: tier.level, commissionPercent: tier.percent, amount: tier.amount,
+            tier: level, commissionPercent: commission.percent, amount: commission.amount,
           },
         }),
-        prisma.user.update({ where: { id: referrer.id }, data: { balance: { increment: tier.amount }, totalEarned: { increment: tier.amount } } }),
+        prisma.user.update({ where: { id: referrer.id }, data: { balance: { increment: commission.amount }, totalEarned: { increment: commission.amount } } }),
       ]);
     }
     current = referrer;
@@ -157,7 +178,7 @@ router.post("/checkin/claim", async (req, res) => {
   }
   const hoursSince = user.lastCheckIn ? (now - user.lastCheckIn) / 36e5 : 999;
   const newStreak = hoursSince <= 48 ? user.streak + 1 : 1;
-  const reward = Math.min(500 + newStreak * 100, 3000); // fixed VND, admin-funded acquisition cost
+  const reward = 100; // flat reward every day — streak is tracked for display only, doesn't affect payout
 
   await prisma.user.update({
     where: { id: user.id },
