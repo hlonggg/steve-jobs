@@ -51,22 +51,33 @@ function splitWithdrawal({ amountRequested, feePercent }) {
 }
 
 /**
- * Referral commission — paid OUT of admin's own profit share, not off the top
- * of the user's reward. This means referral payouts never eat into the
- * guaranteed admin margin from splitTaskReward; they're a separate
- * (smaller, capped) admin cost of acquisition.
+ * Commission for ONE level of the referral chain. Volume boost only applies
+ * to level 1 (direct referrer) — it's a reward for THAT person's own
+ * recruiting effort, based on how many people they personally referred.
+ * `referrerReferralCount` = how many users this specific referrer has brought in.
+ * Referral commission is paid OUT of admin's own profit share, not off the
+ * top of the user's reward — never eats into the guaranteed admin margin.
  */
-function computeReferralChain({ referredUser, userReward, adminConfig }) {
-  const tiers = [
-    { percent: adminConfig.referralTier1Percent, level: 1 },
-    { percent: adminConfig.referralTier2Percent, level: 2 },
-    { percent: adminConfig.referralTier3Percent, level: 3 },
-  ];
-  // caller walks up referredUser.referredBy chain up to 3 levels and applies these percents
-  return tiers.map(t => ({
-    ...t,
-    amount: Math.round(userReward * (t.percent / 100) * 100) / 100,
-  }));
+function computeReferralCommission({ level, userReward, adminConfig, referrerReferralCount = 0 }) {
+  const basePercent = [
+    adminConfig.referralTier1Percent,
+    adminConfig.referralTier2Percent,
+    adminConfig.referralTier3Percent,
+  ][level - 1] ?? 0;
+
+  let boost = 0;
+  if (level === 1 && adminConfig.referralVolumeBoosts) {
+    const thresholds = Object.entries(adminConfig.referralVolumeBoosts)
+      .map(([count, pct]) => [Number(count), Number(pct)])
+      .sort((a, b) => a[0] - b[0]);
+    for (const [minCount, extraPercent] of thresholds) {
+      if (referrerReferralCount >= minCount) boost = extraPercent; // highest threshold met wins
+    }
+  }
+
+  const percent = basePercent + boost;
+  const amount = Math.round(userReward * (percent / 100) * 100) / 100;
+  return { level, percent, basePercent, boost, amount };
 }
 
 /**
@@ -82,6 +93,6 @@ module.exports = {
   effectiveSharePercent,
   splitTaskReward,
   splitWithdrawal,
-  computeReferralChain,
+  computeReferralCommission,
   interstitialRevenue,
 };
