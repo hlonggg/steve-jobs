@@ -505,7 +505,7 @@ async function completeTask(taskId) {
       method: "POST",
       body: JSON.stringify({ zoneIdUsed: task.nextZoneId }), // logging only, not trusted for payout
     });
-    toast(`+${fmt(r.userReward)}đ`);
+    toast(`+${fmt(r.userReward)}đ${r.provisional ? ' (đang xác nhận...)' : ''}`);
     loadDashboard(); loadTasks();
   } catch (e) {
     toast(e.message || "Quảng cáo chưa hoàn tất", "error");
