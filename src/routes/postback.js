@@ -15,9 +15,8 @@ const router = express.Router();
  * pays MORE than the real number, never goes negative.
  */
 router.get("/monetag", async (req, res) => {
-  const { zone_id, telegram_id, estimated_price, event } = req.query;
+  const { zone_id, telegram_id, estimated_price, reward } = req.query;
   if (!zone_id || !telegram_id || estimated_price == null) return res.json({ ok: true, note: "missing fields, ignored" });
-  if (event && event !== "impression" && event !== "reward") return res.json({ ok: true, note: `event type ${event} ignored` });
 
   const { splitTaskReward } = require("../lib/economics");
 
@@ -31,6 +30,19 @@ router.get("/monetag", async (req, res) => {
     include: { task: true },
   });
   if (!completion) return res.json({ ok: true, note: "no matching pending completion" });
+
+  // reward=="no" means Monetag itself confirms this event was NOT monetized —
+  // settle it at zero real revenue (don't top up) instead of leaving it stuck
+  // "pending" forever. Admin absorbs exactly the provisional amount already
+  // paid, nothing more — this is the capped downside the provisional system
+  // was built for.
+  if (reward === "no") {
+    await prisma.taskCompletion.update({
+      where: { id: completion.id },
+      data: { verified: true, sourceRevenue: 0, adminProfit: -completion.userReward },
+    });
+    return res.json({ ok: true, confirmed: true, monetized: false, topUp: 0 });
+  }
 
   const config = await prisma.adminConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
   const realSourceRevenue = Number(estimated_price) * (config.usdToVndRate || 26300);
@@ -52,7 +64,7 @@ router.get("/monetag", async (req, res) => {
     ...(topUp > 0 ? [prisma.user.update({ where: { id: user.id }, data: { balance: { increment: topUp }, totalEarned: { increment: topUp } } })] : []),
   ]);
 
-  res.json({ ok: true, confirmed: true, topUp });
+  res.json({ ok: true, confirmed: true, monetized: true, topUp });
 });
 
 /**
