@@ -115,6 +115,10 @@ model AdTask {
   // Leave empty to fall back to the single default ID configured in the frontend.
   zoneIds              Json?     // e.g. ["1234567", "1234568", "1234569"]
 
+  // ---- Monetag-specific: same show_XXX() function, different call signature ----
+  // null/"interstitial" = show_XXX() ; "pop" = show_XXX('pop') (Rewarded Popup format)
+  adFormat             String?
+
   // ---- direct link rotation (adTrigger = DIRECT_LINK) ----
   // List of raw URLs (e.g. Adsterra Direct Link). Rotates round-robin same as zoneIds.
   directLinkUrls       Json?     // e.g. ["https://...", "https://..."]
