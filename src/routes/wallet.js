@@ -6,6 +6,8 @@ const router = express.Router();
 router.get("/", async (req, res) => {
   const telegramId = String(req.tgUser.id);
   const user = await prisma.user.findUnique({ where: { telegramId } });
+  if (!user) return res.status(404).json({ error: "User not found — mở lại /start trong bot trước" });
+
   const withdrawals = await prisma.withdrawal.findMany({
     where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 20,
   });
@@ -50,6 +52,7 @@ router.post("/vip/purchase", async (req, res) => {
   const { tier } = req.body || {};
   const user = await prisma.user.findUnique({ where: { telegramId } });
   const config = await prisma.adminConfig.findUnique({ where: { id: 1 } });
+  if (!user) return res.status(404).json({ error: "User not found" });
 
   const prices = config.vipPrices || {};
   const price = Number(prices[String(tier)]);
