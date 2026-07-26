@@ -54,4 +54,14 @@ bot.command("admin", async (ctx) => {
   );
 });
 
+// CRITICAL: without a global error handler, ANY exception thrown inside a
+// bot handler (e.g. trying to message a user who blocked the bot — a 403
+// Telegram error, which happens constantly in normal use) crashes the
+// ENTIRE Node process, taking down the whole app (API + mini app + admin
+// panel) for every user, not just the one who blocked it. This catches
+// every such error and just logs it instead.
+bot.catch((err, ctx) => {
+  console.error(`Bot error for update ${ctx.updateType}:`, err.message);
+});
+
 module.exports = bot;
