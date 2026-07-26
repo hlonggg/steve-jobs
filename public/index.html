@@ -285,14 +285,14 @@ function getAdexiumWidget(wid) {
 //   MONETAG: `entry` = full raw <script> pasted in admin panel per zone.
 //   ADEXIUM: `entry` = Widget ID (`wid`); resolves on `adPlaybackCompleted`.
 //   ADSGRAM: `entry` = Block ID.
-async function showRewardedAd(network, entry) {
+async function showRewardedAd(network, entry, adFormat) {
   if (network === "MONETAG") {
     if (!entry) throw new Error("Nhiệm vụ chưa cấu hình script Monetag");
     const { sdk } = extractScriptAttrs(entry) || {};
     if (!sdk) throw new Error("Script Monetag không hợp lệ (thiếu data-zone/data-sdk)");
     await loadMonetagScript(entry);
     const fn = await waitForGlobalFn(sdk);
-    return await fn();
+    return adFormat === "pop" ? await fn("pop") : await fn();
   }
 
   if (network === "ADSGRAM") {
@@ -500,7 +500,7 @@ async function completeTask(taskId) {
     taskBtn.disabled = true; taskBtn.textContent = "Đang xem...";
     const { tasks } = await api("/api/tasks");
     const task = tasks.find(t => t.id === taskId);
-    await showRewardedAd(task.network, task.nextZoneId);
+    await showRewardedAd(task.network, task.nextZoneId, task.adFormat);
     const r = await api(`/api/tasks/${taskId}/complete`, {
       method: "POST",
       body: JSON.stringify({ zoneIdUsed: task.nextZoneId }), // logging only, not trusted for payout
