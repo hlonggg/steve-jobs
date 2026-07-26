@@ -242,14 +242,21 @@
       <option value="ADSTERRA">Adsterra</option>
       <option value="NONE">Không (nhiệm vụ thường)</option>
     </select>
-    <label class="text-xs text-muted">Network trả admin bao nhiêu / lượt (đ)</label>
+    <label class="text-xs text-muted">Network trả admin bao nhiêu / lượt (đ) — chỉ để tham khảo margin, không bắt buộc</label>
     <input id="t_revenue" type="number" placeholder="VD: 200" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
-    <label class="text-xs text-muted">% chia cho user (mặc định lấy config chung nếu bỏ trống)</label>
+    <label class="text-xs text-muted">% chia cho user (bỏ qua nếu điền "Phần thưởng cố định" bên dưới)</label>
     <input id="t_share" type="number" placeholder="50" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">Phần thưởng cố định (đ) — điền số này thì user LUÔN nhận đúng số đó, bỏ qua hết % ở trên</label>
+    <input id="t_fixedReward" type="number" placeholder="Để trống nếu muốn tính theo %" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
 
     <!-- ===== MONETAG: mỗi dòng là 1 script đầy đủ Monetag đưa cho bạn ===== -->
     <div id="block_MONETAG" class="rounded-card bg-surface2 border border-border p-3 space-y-2 hidden">
       <div class="text-xs font-semibold text-money">Monetag — dán script (mỗi ô 1 script riêng, luân phiên mỗi lần bấm)</div>
+      <label class="text-[10px] text-muted">Định dạng quảng cáo</label>
+      <select id="t_adFormat" class="w-full bg-surface border border-border rounded-pill px-3 py-2 text-xs">
+        <option value="">Rewarded Interstitial (mặc định — show_XXX())</option>
+        <option value="pop">Rewarded Popup (show_XXX('pop'))</option>
+      </select>
       <div id="rows_MONETAG" class="space-y-2"></div>
       <button type="button" onclick="addEntryRow('MONETAG')" class="text-xs bg-surface px-3 py-1.5 rounded-pill border border-border">+ Thêm script Monetag</button>
     </div>
@@ -461,7 +468,7 @@ function updateEntry(network, i, val) { networkEntries[network][i] = val; }
 function updateAdexiumEntry(i, field, val) { networkEntries.ADEXIUM[i][field] = val; }
 function removeEntry(network, i) { networkEntries[network].splice(i, 1); renderEntryRows(network); }
 
-const taskFormFields = ["t_id","t_title","t_desc","t_revenue","t_share","t_cooldown","t_daily","t_totalPerUser","t_globalDaily","t_globalTotal","t_dwellSeconds"];
+const taskFormFields = ["t_id","t_title","t_desc","t_revenue","t_share","t_cooldown","t_daily","t_totalPerUser","t_globalDaily","t_globalTotal","t_dwellSeconds","t_adFormat","t_fixedReward"];
 function openTaskForm(){
   taskModal.classList.remove("hidden");
   renderNetworkBlock();
@@ -480,6 +487,8 @@ function editTask(t){
   t_globalDaily.value = t.globalDailyLimit || 0;
   t_globalTotal.value = t.globalTotalLimit || 0;
   t_dwellSeconds.value = t.dwellSeconds || 8;
+  t_adFormat.value = t.adFormat || "";
+  t_fixedReward.value = t.fixedReward != null ? t.fixedReward : "";
 
   networkEntries = { MONETAG: [], ADEXIUM: [], ADSGRAM: [], ADSTERRA: [] };
   if (t.network === "ADSTERRA") {
@@ -518,6 +527,8 @@ async function saveTask(){
     zoneIds: isAdsterra ? [] : cleanEntries,
     directLinkUrls: isAdsterra ? cleanEntries : [],
     dwellSeconds: Number(t_dwellSeconds.value || 8),
+    adFormat: net === "MONETAG" ? (t_adFormat.value || null) : null,
+    fixedReward: t_fixedReward.value !== "" ? Number(t_fixedReward.value) : null,
   };
   try {
     if (t_id.value) await api(`/api/admin/tasks/${t_id.value}`, { method:"PATCH", body: JSON.stringify(payload) });
