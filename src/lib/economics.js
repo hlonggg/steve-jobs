@@ -31,12 +31,20 @@ function effectiveSharePercent(task, user, adminConfig) {
  */
 function splitTaskReward({ task, user, adminConfig, sourceRevenue }) {
   const sharePercent = effectiveSharePercent(task, user, adminConfig);
-  let userReward = task.fixedReward != null
-    ? Math.min(task.fixedReward, sourceRevenue) // fixed rewards still can't exceed source revenue
-    : sourceRevenue * (sharePercent / 100);
-
-  userReward = Math.max(0, Math.round(userReward * 100) / 100);
-  const adminProfit = Math.max(0, Math.round((sourceRevenue - userReward) * 100) / 100);
+  let userReward, adminProfit;
+  if (task.fixedReward != null) {
+    // Fixed reward mode: admin's explicit choice, pay exactly this amount —
+    // no cap, no % math. sourceRevenue (CPM) is optional here and only used
+    // to show a truthful profit/loss number (can go negative if the fixed
+    // reward is set higher than what the network actually pays — that's a
+    // real signal worth seeing, not something to hide).
+    userReward = Math.max(0, Math.round(task.fixedReward * 100) / 100);
+    adminProfit = Math.round((sourceRevenue - userReward) * 100) / 100;
+  } else {
+    userReward = sourceRevenue * (sharePercent / 100);
+    userReward = Math.max(0, Math.round(userReward * 100) / 100);
+    adminProfit = Math.max(0, Math.round((sourceRevenue - userReward) * 100) / 100); // % path mathematically can't go negative
+  }
 
   return { userReward, adminProfit, sharePercent };
 }
