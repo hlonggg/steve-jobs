@@ -1,4 +1,17 @@
 require("dotenv").config();
+
+// SAFETY NET: we've hit several bugs (referral function rename, null user
+// checks, Telegram 403 on blocked bots) where a single unhandled error in
+// one request/handler crashed the ENTIRE process, taking down the app for
+// every user. This doesn't fix the underlying bugs (still worth fixing when
+// found) but stops any future one-off error from causing full downtime.
+process.on("unhandledRejection", (err) => {
+  console.error("Unhandled rejection (server stayed up):", err);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception (server stayed up):", err);
+});
+
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
