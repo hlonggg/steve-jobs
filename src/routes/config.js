@@ -12,10 +12,10 @@ router.get("/", async (req, res) => {
     vipPrices: config.vipPrices || {},
     vipRevenueBoost: config.vipRevenueBoost || {},
     interstitialEveryNClicks: config.interstitialEveryNClicks || 0,
+    adSlotEveryNClicks: config.adSlotEveryNClicks || 1,
     minWithdraw: config.minWithdraw,
     withdrawFeePercent: config.withdrawFeePercent,
   });
 });
 
 module.exports = router;
-
