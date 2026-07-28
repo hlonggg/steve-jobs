@@ -365,7 +365,12 @@ function injectRawAdHtml(rawHtml, container) {
   });
 }
 
+let adSlotClickCount = 0;
 async function loadAdSlotsForPage(page) {
+  adSlotClickCount++;
+  const every = Math.max(1, STATE.config?.adSlotEveryNClicks || 1);
+  if (adSlotClickCount % every !== 0) return; // throttled — skip this call
+
   try {
     const { slots } = await api(`/api/adslots?page=${page}`);
     slots.forEach(slot => {
