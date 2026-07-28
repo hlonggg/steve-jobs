@@ -165,6 +165,8 @@
     <input id="cfg_withdrawFee" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
     <label class="text-xs text-muted">Interstitial ad mỗi N lần bấm menu</label>
     <input id="cfg_interstitial" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
+    <label class="text-xs text-muted">Ad Slots (Adsterra...) gọi mỗi N lần chuyển tab — tăng số này nếu bị Adsterra đánh giá là bot do gọi quá nhanh/quá nhiều</label>
+    <input id="cfg_adSlotClicks" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
     <label class="text-xs text-muted">Tỷ giá USD → VNĐ (dùng để quy đổi doanh thu Adexium)</label>
     <input id="cfg_usdRate" type="number" class="w-full bg-surface2 border border-border rounded-pill px-4 py-2 text-sm">
     <label class="text-xs text-muted">% trả tạm ứng ngay cho Monetag (còn lại cộng bù khi có postback xác nhận)</label>
@@ -684,6 +686,7 @@ async function loadConfig(){
   cfg_minWithdraw.value = config.minWithdraw;
   cfg_withdrawFee.value = config.withdrawFeePercent;
   cfg_interstitial.value = config.interstitialEveryNClicks;
+  cfg_adSlotClicks.value = config.adSlotEveryNClicks ?? 1;
   cfg_usdRate.value = config.usdToVndRate || 26300;
   cfg_monetagProvisional.value = config.monetagProvisionalPercent ?? 60;
 
@@ -742,6 +745,7 @@ async function saveConfig(){
       minWithdraw: Number(cfg_minWithdraw.value),
       withdrawFeePercent: Number(cfg_withdrawFee.value),
       interstitialEveryNClicks: Number(cfg_interstitial.value),
+      adSlotEveryNClicks: Number(cfg_adSlotClicks.value || 1),
       usdToVndRate: Number(cfg_usdRate.value),
       monetagProvisionalPercent: Number(cfg_monetagProvisional.value),
       vipPrices, vipRevenueBoost,
