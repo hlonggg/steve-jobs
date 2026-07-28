@@ -253,6 +253,7 @@ model AdminConfig {
   vipPrices              Json?   // { "1": 20000, "2": 50000, "3": 100000, "4": 200000 }
   vipRevenueBoost        Json?   // { "1": 5, "2": 10, "3": 15, "4": 20 } extra % share for VIP tiers
   interstitialEveryNClicks Int   @default(3) // show interstitial ad every N nav clicks (pure admin revenue)
+  adSlotEveryNClicks     Int     @default(1) // throttle Ad Slot (Adsterra etc) injection — every N tab switches, not every single one (avoids bot-like rapid-fire request patterns)
   maintenanceMode        Boolean @default(false)
 
   updatedAt              DateTime @updatedAt
